@@ -1,0 +1,52 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+ephemeral/
+
+# C++ / Visual Studio / CMake
+build/
+out/
+bin/
+*.obj
+*.ilk
+*.pdb
+*.exp
+*.lib
+*.tlog
+*.idb
+*.opensdf
+*.sdf
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Inno Setup Output
+Output/

@@ -1,0 +1,14 @@
+name: camsync_protocol
+description: Core network protocols, packet framing, and RPC commands for CamSync.
+version: 1.0.0
+homepage: https://github.com/camsync/camsync
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  meta: ^1.11.0
+
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^3.0.0
