@@ -112,12 +112,12 @@ jobs:
 
       - name: Build 64-bit DirectShow Driver & Bridge
         run: |
-          cmake -B build64 -A x64
+          cmake -B build64 -S native -A x64
           cmake --build build64 --config Release
 
       - name: Build 32-bit DirectShow Driver
         run: |
-          cmake -B build32 -A Win32
+          cmake -B build32 -S native -A Win32
           cmake --build build32 --config Release
 
       - name: Build Flutter Windows Companion
