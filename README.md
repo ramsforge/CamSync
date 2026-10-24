@@ -2,6 +2,22 @@
 > Turn any Android or iOS phone into an ultra-low latency, studio-grade webcam for Windows PC.  
 > **100% Free • Open Source • No Paywalls • No Watermarks • No Lag**
 
+[![CamSync Build & Release CI](https://github.com/Ramzyayman/CamSync/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/Ramzyayman/CamSync/actions/workflows/build-and-release.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/Ramzyayman/CamSync)](https://github.com/Ramzyayman/CamSync/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## 📥 Download Ready-to-Use Releases
+
+Get the latest pre-compiled binaries from the **[GitHub Releases Page](https://github.com/Ramzyayman/CamSync/releases/latest)**:
+
+| Platform | Download | Description |
+| :--- | :--- | :--- |
+| **Windows PC** | **`CamSync-v1.0.0-Windows-Portable.zip`** | Portable companion app, virtual camera driver DLLs, registration scripts & test tools. |
+| **Android Phone** | **`CamSync-v1.0.0-Android.apk`** | Release APK with Camera2 multi-lens & hardware H.264 encoder. |
+| **Apple iOS** | **`CamSync-v1.0.0-iOS-unsigned.ipa`** / **`Source.zip`** | Sideloadable via AltStore / Sideloadly or build via Xcode. |
+
 ---
 
 ## ✨ Features

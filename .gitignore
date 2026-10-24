@@ -50,3 +50,9 @@ Desktop.ini
 
 # Inno Setup Output
 Output/
+
+# Distribution & Release Artifacts
+dist/
+build32/
+build64/
+

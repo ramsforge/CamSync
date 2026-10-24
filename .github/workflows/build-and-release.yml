@@ -1,0 +1,178 @@
+name: CamSync Build & Release CI
+
+on:
+  push:
+    branches: [ master, main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: |
+          cd packages/camsync_protocol
+          flutter pub get
+          cd ../../apps/mobile
+          flutter pub get
+
+      - name: Build Release APK
+        run: |
+          cd apps/mobile
+          flutter build apk --release
+
+      - name: Prepare APK Artifact
+        run: |
+          mkdir -p dist
+          cp apps/mobile/build/app/outputs/flutter-apk/app-release.apk dist/CamSync-v1.0.0-Android.apk
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamSync-Android-Release
+          path: dist/CamSync-v1.0.0-Android.apk
+
+  build-ios:
+    name: Build iOS (Unsigned IPA)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: |
+          cd packages/camsync_protocol
+          flutter pub get
+          cd ../../apps/mobile
+          flutter pub get
+
+      - name: Build iOS No-Codesign
+        run: |
+          cd apps/mobile
+          flutter build ios --release --no-codesign
+
+      - name: Package Payload to IPA
+        run: |
+          mkdir -p dist/Payload
+          cp -r apps/mobile/build/ios/iphoneos/Runner.app dist/Payload/
+          cd dist
+          zip -r CamSync-v1.0.0-iOS-unsigned.ipa Payload
+          rm -rf Payload
+
+      - name: Upload iOS IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamSync-iOS-Release
+          path: dist/CamSync-v1.0.0-iOS-unsigned.ipa
+
+  build-windows:
+    name: Build Windows PC Portable
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC & CMake
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Build 64-bit DirectShow Driver & Bridge
+        run: |
+          cmake -B build64 -A x64
+          cmake --build build64 --config Release
+
+      - name: Build 32-bit DirectShow Driver
+        run: |
+          cmake -B build32 -A Win32
+          cmake --build build32 --config Release
+
+      - name: Build Flutter Windows Companion
+        run: |
+          cd packages/camsync_protocol
+          flutter pub get
+          cd ../../apps/desktop
+          flutter pub get
+          flutter build windows --release
+
+      - name: Assemble Windows Portable Bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/CamSync-Portable
+          Copy-Item -Recurse apps/desktop/build/windows/x64/runner/Release/* dist/CamSync-Portable/
+          Copy-Item build64/native/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam64.dll
+          Copy-Item build64/native/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam.dll
+          Copy-Item build32/native/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam32.dll
+          Copy-Item build64/native/bridge/Release/camsync_native.dll dist/CamSync-Portable/
+          New-Item -ItemType Directory -Force -Path dist/CamSync-Portable/tools
+          Copy-Item build64/native/tools/Release/*.exe dist/CamSync-Portable/tools/
+          New-Item -ItemType Directory -Force -Path dist/CamSync-Portable/scripts
+          Copy-Item packaging/windows/scripts/* dist/CamSync-Portable/scripts/
+          Copy-Item packaging/windows/scripts/register_system.reg dist/CamSync-Portable/scripts/ -ErrorAction SilentlyContinue
+          Copy-Item dist/CamSync-Portable-v1.0.0/README.txt dist/CamSync-Portable/README.txt -ErrorAction SilentlyContinue
+          Compress-Archive -Path dist/CamSync-Portable/* -DestinationPath dist/CamSync-v1.0.0-Windows-Portable.zip -Force
+
+      - name: Upload Windows Portable Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamSync-Windows-Portable
+          path: dist/CamSync-v1.0.0-Windows-Portable.zip
+
+  create-release:
+    name: Publish GitHub Release
+    needs: [build-android, build-ios, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten Artifacts
+        run: |
+          mkdir -p release_assets
+          find artifacts -type f -exec cp {} release_assets/ \;
+          ls -la release_assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/*
+          generate_release_notes: true
