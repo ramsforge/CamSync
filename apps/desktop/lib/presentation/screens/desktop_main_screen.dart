@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:camsync_protocol/camsync_protocol.dart';
 import '../../device/usb_manager.dart';
@@ -25,8 +26,8 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   List<UsbDevice> _usbDevices = [];
 
   CameraParameters _params = const CameraParameters(
-    resolution: CameraResolution.fhd1080,
-    fps: 60,
+    resolution: CameraResolution.hd720,
+    fps: 30,
     lens: CameraLens.backWide,
     zoom: 1.0,
     torch: false,
@@ -55,6 +56,11 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   StreamSubscription? _stateSub;
   StreamSubscription? _telemetrySub;
 
+  ui.Image? _previewImage;
+  Timer? _previewTimer;
+  int _lastRenderedFrameNum = 0;
+  bool _isDecodingFrame = false;
+
   @override
   void initState() {
     super.initState();
@@ -68,11 +74,60 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
 
     _stateSub = _streamClient.onStateChanged.listen((state) {
       setState(() => _connectionState = state);
+      if (state == CamSyncConnectionState.connected) {
+        _startPreviewLoop();
+      } else {
+        _stopPreviewLoop();
+      }
     });
 
     _telemetrySub = _streamClient.onTelemetry.listen((t) {
       setState(() => _telemetry = t);
     });
+  }
+
+  void _startPreviewLoop() {
+    _previewTimer?.cancel();
+    _previewTimer = Timer.periodic(const Duration(milliseconds: 33), (_) => _pollPreviewFrame());
+  }
+
+  void _stopPreviewLoop() {
+    _previewTimer?.cancel();
+    _previewTimer = null;
+    if (_previewImage != null) {
+      _previewImage?.dispose();
+      _previewImage = null;
+      _lastRenderedFrameNum = 0;
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _pollPreviewFrame() {
+    if (_connectionState != CamSyncConnectionState.connected || _isDecodingFrame) return;
+
+    final frame = _native.getLatestFrame();
+    if (frame == null || frame.frameNumber == _lastRenderedFrameNum) return;
+
+    _lastRenderedFrameNum = frame.frameNumber;
+    _isDecodingFrame = true;
+
+    ui.decodeImageFromPixels(
+      frame.bgraBytes,
+      frame.width,
+      frame.height,
+      ui.PixelFormat.bgra8888,
+      (img) {
+        if (mounted) {
+          setState(() {
+            _previewImage?.dispose();
+            _previewImage = img;
+          });
+        } else {
+          img.dispose();
+        }
+        _isDecodingFrame = false;
+      },
+    );
   }
 
   Future<void> _connectUsb() async {
@@ -92,6 +147,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   }
 
   void _disconnect() {
+    _stopPreviewLoop();
     _streamClient.requestStream(false);
     _streamClient.disconnect();
   }
@@ -103,6 +159,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
 
   @override
   void dispose() {
+    _stopPreviewLoop();
     _usbSub?.cancel();
     _stateSub?.cancel();
     _telemetrySub?.cancel();
@@ -288,43 +345,67 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
       child: Stack(
         children: [
           Center(
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Container(
-                margin: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF141720),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isConnected ? Icons.videocam : Icons.videocam_off_outlined,
-                        size: 64,
-                        color: isConnected ? Colors.greenAccent : Colors.white24,
+            child: isConnected && _previewImage != null
+                ? AspectRatio(
+                    aspectRatio: _previewImage!.width / _previewImage!.height,
+                    child: Container(
+                      margin: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.blueAccent.withOpacity(0.15),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        isConnected
-                            ? 'Streaming Video to Virtual Camera'
-                            : 'Phone not connected',
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: RawImage(
+                          image: _previewImage,
+                          fit: BoxFit.contain,
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isConnected
-                            ? 'Open Zoom, Discord, Teams, or OBS and select "CamSync Virtual Camera"'
-                            : 'Connect phone via USB cable or Wi-Fi to begin',
-                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  )
+                : AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Container(
+                      margin: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF141720),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white12),
                       ),
-                    ],
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isConnected ? Icons.videocam : Icons.videocam_off_outlined,
+                              size: 64,
+                              color: isConnected ? Colors.greenAccent : Colors.white24,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              isConnected
+                                  ? 'Awaiting Video Frames...'
+                                  : 'Phone not connected',
+                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              isConnected
+                                  ? 'Ensure streaming is started on your phone'
+                                  : 'Connect phone via USB cable or Wi-Fi to begin',
+                              style: const TextStyle(color: Colors.white54, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
           ),
 
           // Floating Telemetry Overlay (Top Left)

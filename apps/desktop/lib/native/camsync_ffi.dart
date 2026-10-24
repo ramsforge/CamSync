@@ -19,6 +19,13 @@ typedef _c_feed_nal = Int32 Function(
   Uint64 timestampMs,
 );
 typedef _c_is_active = Int32 Function();
+typedef _c_get_latest_frame = Int32 Function(
+  Pointer<Uint8> pOutBuffer,
+  Uint32 bufferSize,
+  Pointer<Uint32> pWidth,
+  Pointer<Uint32> pHeight,
+  Pointer<Uint64> pFrameNumber,
+);
 typedef _c_close = Void Function();
 
 // Dart Signatures
@@ -37,7 +44,28 @@ typedef _d_feed_nal = int Function(
   int timestampMs,
 );
 typedef _d_is_active = int Function();
+typedef _d_get_latest_frame = int Function(
+  Pointer<Uint8> pOutBuffer,
+  int bufferSize,
+  Pointer<Uint32> pWidth,
+  Pointer<Uint32> pHeight,
+  Pointer<Uint64> pFrameNumber,
+);
 typedef _d_close = void Function();
+
+class DecodedFrame {
+  final Uint8List bgraBytes;
+  final int width;
+  final int height;
+  final int frameNumber;
+
+  DecodedFrame({
+    required this.bgraBytes,
+    required this.width,
+    required this.height,
+    required this.frameNumber,
+  });
+}
 
 class CamSyncNative {
   static CamSyncNative? _instance;
@@ -47,7 +75,14 @@ class CamSyncNative {
   late final _d_write_frame _writeFrame;
   late final _d_feed_nal _feedNal;
   late final _d_is_active _isActive;
+  late final _d_get_latest_frame _getLatestFrame;
   late final _d_close _close;
+
+  Pointer<Uint8>? _frameBuffer;
+  int _frameBufferSize = 0;
+  final Pointer<Uint32> _pWidth = calloc<Uint32>();
+  final Pointer<Uint32> _pHeight = calloc<Uint32>();
+  final Pointer<Uint64> _pFrameNumber = calloc<Uint64>();
 
   bool _initialized = false;
   bool get isInitialized => _initialized;
@@ -86,6 +121,7 @@ class CamSyncNative {
     _writeFrame = _dylib.lookupFunction<_c_write_frame, _d_write_frame>('CamSync_WriteFrame');
     _feedNal = _dylib.lookupFunction<_c_feed_nal, _d_feed_nal>('CamSync_FeedH264Nal');
     _isActive = _dylib.lookupFunction<_c_is_active, _d_is_active>('CamSync_IsVirtualCamActive');
+    _getLatestFrame = _dylib.lookupFunction<_c_get_latest_frame, _d_get_latest_frame>('CamSync_GetLatestFrame');
     _close = _dylib.lookupFunction<_c_close, _d_close>('CamSync_Close');
   }
 
@@ -131,6 +167,31 @@ class CamSyncNative {
   bool isVirtualCamActive() {
     if (!_initialized) return false;
     return _isActive() == 1;
+  }
+
+  DecodedFrame? getLatestFrame() {
+    if (!_initialized) return null;
+    const maxNeeded = 1920 * 1080 * 4;
+    if (_frameBuffer == null || _frameBufferSize < maxNeeded) {
+      if (_frameBuffer != null) calloc.free(_frameBuffer!);
+      _frameBuffer = calloc<Uint8>(maxNeeded);
+      _frameBufferSize = maxNeeded;
+    }
+
+    final res = _getLatestFrame(_frameBuffer!, _frameBufferSize, _pWidth, _pHeight, _pFrameNumber);
+    if (res != 1) return null;
+
+    final w = _pWidth.value;
+    final h = _pHeight.value;
+    final num = _pFrameNumber.value;
+    final size = w * h * 4;
+
+    return DecodedFrame(
+      bgraBytes: Uint8List.fromList(_frameBuffer!.asTypedList(size)),
+      width: w,
+      height: h,
+      frameNumber: num,
+    );
   }
 
   void close() {

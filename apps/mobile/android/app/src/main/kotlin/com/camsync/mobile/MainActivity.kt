@@ -18,6 +18,7 @@ class MainActivity : FlutterActivity() {
 
     private var captureEngine: CameraCaptureEngine? = null
     private var hardwareEncoder: HardwareEncoder? = null
+    private var videoServer: VideoStreamingServer? = null
     private var eventSink: EventChannel.EventSink? = null
     private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
 
@@ -128,6 +129,10 @@ class MainActivity : FlutterActivity() {
         currentFps = fps
         currentLens = lens
 
+        if (videoServer == null) {
+            videoServer = VideoStreamingServer(8282).apply { start() }
+        }
+
         val entry = flutterEngine?.renderer?.createSurfaceTexture()
         textureEntry = entry
         val surfaceTexture = entry?.surfaceTexture()
@@ -146,9 +151,7 @@ class MainActivity : FlutterActivity() {
                     height = actualHeight,
                     fps = actualFps,
                     onPacketEncoded = { packetBytes ->
-                        runOnUiThread {
-                            eventSink?.success(packetBytes)
-                        }
+                        videoServer?.broadcastPacket(packetBytes)
                     }
                 )
                 hardwareEncoder!!.start()
@@ -172,6 +175,8 @@ class MainActivity : FlutterActivity() {
         captureEngine?.stop()
         hardwareEncoder?.stop()
         hardwareEncoder = null
+        videoServer?.stop()
+        videoServer = null
         try {
             textureEntry?.release()
         } catch (_: Exception) {}

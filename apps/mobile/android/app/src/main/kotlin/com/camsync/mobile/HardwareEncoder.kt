@@ -77,30 +77,19 @@ class HardwareEncoder(
         if (!isEncoding) return
 
         try {
-            val inputBufferIndex = codec.dequeueInputBuffer(5_000L) // 5ms timeout
+            val inputBufferIndex = codec.dequeueInputBuffer(2_000L) // 2ms timeout
             if (inputBufferIndex >= 0) {
                 val inputBuffer = codec.getInputBuffer(inputBufferIndex) ?: return
                 inputBuffer.clear()
 
                 val ySize = width * height
                 val totalSize = ySize * 3 / 2
-                val buffer = nv12Buffer ?: ByteArray(totalSize).also { nv12Buffer = it }
 
                 if (nv21Data.size >= totalSize) {
-                    // Copy Y plane directly
-                    System.arraycopy(nv21Data, 0, buffer, 0, ySize)
-
-                    // Convert VU (NV21) to UV (NV12)
-                    val uvSize = totalSize - ySize
-                    for (i in 0 until uvSize step 2) {
-                        buffer[ySize + i] = nv21Data[ySize + i + 1]     // U
-                        buffer[ySize + i + 1] = nv21Data[ySize + i]     // V
-                    }
-
                     val putLen = Math.min(inputBuffer.remaining(), totalSize)
-                    inputBuffer.put(buffer, 0, putLen)
+                    inputBuffer.put(nv21Data, 0, putLen)
 
-                    val presentationTimeUs = (System.currentTimeMillis() - startTimeMs) * 1000
+                    val presentationTimeUs = (System.nanoTime() / 1000L) - (startTimeMs * 1000L)
                     codec.queueInputBuffer(inputBufferIndex, 0, putLen, presentationTimeUs, 0)
                 } else {
                     codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)

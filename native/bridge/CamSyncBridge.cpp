@@ -289,8 +289,9 @@ CAMSYNC_API int CamSync_FeedH264Nal(
                         for (int x = 0; x < w; ++x) {
                             int Y = pNv12[yRow + x];
                             int uvIndex = uvRow + (x & ~1);
-                            int U = pNv12[uvIndex];
-                            int V = pNv12[uvIndex + 1];
+                            // Mobile hardware camera outputs NV21 (V then U)
+                            int V = pNv12[uvIndex];
+                            int U = pNv12[uvIndex + 1];
 
                             int c = Y - 16;
                             int d = U - 128;
@@ -326,6 +327,28 @@ CAMSYNC_API int CamSync_FeedH264Nal(
 CAMSYNC_API int CamSync_IsVirtualCamActive() {
     if (!g_pSharedMem) return 0;
     return g_pSharedMem->header.isStreaming != 0 ? 1 : 0;
+}
+
+CAMSYNC_API int CamSync_GetLatestFrame(
+    uint8_t* pOutBuffer,
+    uint32_t bufferSize,
+    uint32_t* pWidth,
+    uint32_t* pHeight,
+    uint64_t* pFrameNumber
+) {
+    if (!pOutBuffer || !pWidth || !pHeight || !pFrameNumber) return 0;
+    if (g_rgbBuffer.empty() || g_frameCounter == 0) return 0;
+
+    uint32_t w = g_decoderWidth;
+    uint32_t h = g_decoderHeight;
+    uint32_t neededSize = w * h * 4;
+    if (bufferSize < neededSize) return 0;
+
+    memcpy(pOutBuffer, g_rgbBuffer.data(), neededSize);
+    *pWidth = w;
+    *pHeight = h;
+    *pFrameNumber = g_frameCounter;
+    return 1;
 }
 
 CAMSYNC_API void CamSync_Close() {

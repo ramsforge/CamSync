@@ -37,13 +37,8 @@ class MobileStreamServer {
   Future<void> start() async {
     await stop();
 
-    _videoServer = await ServerSocket.bind(
-      InternetAddress.anyIPv4,
-      videoPort,
-      shared: true,
-    );
-    _videoServer?.listen(_onVideoClientConnected);
-
+    // Native Kotlin VideoStreamingServer handles port 8282 with zero-copy.
+    // Dart manages port 8283 for bidirectional JSON-RPC control and telemetry.
     _controlServer = await ServerSocket.bind(
       InternetAddress.anyIPv4,
       controlPort,

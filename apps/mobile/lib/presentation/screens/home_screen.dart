@@ -25,8 +25,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _clientCount = 0;
   String _localIp = 'Discovering...';
 
-  CameraResolution _selectedResolution = CameraResolution.fhd1080;
-  int _selectedFps = 60;
+  CameraResolution _selectedResolution = CameraResolution.hd720;
+  int _selectedFps = 30;
   CameraLens _selectedLens = CameraLens.backWide;
   bool _torchEnabled = false;
   double _currentZoom = 1.0;

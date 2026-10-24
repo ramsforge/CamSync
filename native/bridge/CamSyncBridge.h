@@ -32,5 +32,15 @@ CAMSYNC_API int CamSync_FeedH264Nal(
 // Returns 1 if DirectShow virtual camera is actively reading frames, 0 if idle
 CAMSYNC_API int CamSync_IsVirtualCamActive();
 
+// Copies latest decoded BGRA frame for desktop UI preview
+// Returns 1 if a frame was copied, 0 if no new frame or buffer too small
+CAMSYNC_API int CamSync_GetLatestFrame(
+    uint8_t* pOutBuffer,
+    uint32_t bufferSize,
+    uint32_t* pWidth,
+    uint32_t* pHeight,
+    uint64_t* pFrameNumber
+);
+
 // Closes and releases shared memory and decoder handles
 CAMSYNC_API void CamSync_Close();
