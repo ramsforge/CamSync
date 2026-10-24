@@ -8,10 +8,13 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class HardwareEncoder(
-    private val width: Int,
-    private val height: Int,
-    private val fps: Int = 30,
+    val width: Int,
+    val height: Int,
+    val fps: Int = 30,
     private val bitrateBps: Int = 4_000_000,
+    private val isPortrait: Boolean = false,
+    private val cameraWidth: Int = width,
+    private val cameraHeight: Int = height,
     private val onPacketEncoded: (ByteArray) -> Unit
 ) {
     companion object {
@@ -107,32 +110,71 @@ class HardwareEncoder(
                 val ySize = width * height
                 val totalSize = ySize * 3 / 2
 
-                if (nv21Data.size >= totalSize) {
-                    val putLen = Math.min(inputBuffer.remaining(), totalSize)
-                    if (putLen == totalSize) {
-                        // Copy Y plane directly
-                        inputBuffer.put(nv21Data, 0, ySize)
-                        // Convert NV21 (V, U) to NV12 (U, V)
-                        var i = ySize
-                        while (i < totalSize) {
-                            val v = nv21Data[i]
-                            val u = nv21Data[i + 1]
-                            inputBuffer.put(u)
-                            inputBuffer.put(v)
-                            i += 2
-                        }
+                if (isPortrait) {
+                    val camYSize = cameraWidth * cameraHeight
+                    val camTotalSize = camYSize * 3 / 2
+                    if (nv21Data.size >= camTotalSize && inputBuffer.remaining() >= totalSize) {
+                        rotateNV21ToNV12_90(nv21Data, cameraWidth, cameraHeight, inputBuffer)
+                        val presentationTimeUs = (System.nanoTime() - startNanoTime) / 1000L
+                        codec.queueInputBuffer(inputBufferIndex, 0, totalSize, presentationTimeUs, 0)
                     } else {
-                        inputBuffer.put(nv21Data, 0, putLen)
+                        codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)
                     }
-
-                    val presentationTimeUs = (System.nanoTime() - startNanoTime) / 1000L
-                    codec.queueInputBuffer(inputBufferIndex, 0, putLen, presentationTimeUs, 0)
                 } else {
-                    codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)
+                    if (nv21Data.size >= totalSize) {
+                        val putLen = Math.min(inputBuffer.remaining(), totalSize)
+                        if (putLen == totalSize) {
+                            // Copy Y plane directly
+                            inputBuffer.put(nv21Data, 0, ySize)
+                            // Convert NV21 (V, U) to NV12 (U, V) for standard H.264 matching iOS
+                            var i = ySize
+                            while (i < totalSize) {
+                                val v = nv21Data[i]
+                                val u = nv21Data[i + 1]
+                                inputBuffer.put(u)
+                                inputBuffer.put(v)
+                                i += 2
+                            }
+                        } else {
+                            inputBuffer.put(nv21Data, 0, putLen)
+                        }
+
+                        val presentationTimeUs = (System.nanoTime() - startNanoTime) / 1000L
+                        codec.queueInputBuffer(inputBufferIndex, 0, putLen, presentationTimeUs, 0)
+                    } else {
+                        codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error in encodeFrame: ${e.message}")
+        }
+    }
+
+    private fun rotateNV21ToNV12_90(
+        nv21: ByteArray,
+        camWidth: Int,
+        camHeight: Int,
+        output: ByteBuffer
+    ) {
+        // 1. Rotate Y plane: output has camHeight (1080) columns, camWidth (1920) rows
+        for (x in 0 until camWidth) {
+            for (y in camHeight - 1 downTo 0) {
+                output.put(nv21[y * camWidth + x])
+            }
+        }
+
+        // 2. Rotate UV plane (NV21: V, U interleaved -> NV12: U, V interleaved)
+        val ySize = camWidth * camHeight
+        val uvHeight = camHeight / 2
+        for (x in 0 until camWidth step 2) {
+            for (y in uvHeight - 1 downTo 0) {
+                val uvIndex = ySize + y * camWidth + x
+                val v = nv21[uvIndex]
+                val u = nv21[uvIndex + 1]
+                output.put(u)
+                output.put(v)
+            }
         }
     }
 

@@ -100,6 +100,16 @@ class ControlRpcMessage {
     );
   }
 
+  /// Notification broadcast when camera parameters change on the phone or PC.
+  static ControlRpcMessage parametersNotification({
+    required CameraParameters parameters,
+  }) {
+    return ControlRpcMessage(
+      method: 'camera.onParametersChanged',
+      params: parameters.toJson(),
+    );
+  }
+
   /// Telemetry notification broadcast from phone to desktop companion.
   static ControlRpcMessage telemetryNotification({
     required DeviceTelemetry telemetry,

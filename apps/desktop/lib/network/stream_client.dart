@@ -20,9 +20,12 @@ class StreamClient {
       StreamController<CamSyncConnectionState>.broadcast();
   final StreamController<DeviceTelemetry> _telemetryController =
       StreamController<DeviceTelemetry>.broadcast();
+  final StreamController<CameraParameters> _parametersController =
+      StreamController<CameraParameters>.broadcast();
 
   Stream<CamSyncConnectionState> get onStateChanged => _stateController.stream;
   Stream<DeviceTelemetry> get onTelemetry => _telemetryController.stream;
+  Stream<CameraParameters> get onParametersChanged => _parametersController.stream;
 
   int _rpcId = 1;
 
@@ -167,6 +170,9 @@ class StreamClient {
               if (_measuredFps == 0.0) {
                 _telemetryController.add(_lastDeviceTelemetry);
               }
+            } else if ((msg.method == 'camera.onParametersChanged' || msg.method == 'camera.setParameters') && msg.params != null) {
+              final params = CameraParameters.fromJson(msg.params!);
+              _parametersController.add(params);
             }
           } catch (_) {}
         }
@@ -235,5 +241,6 @@ class StreamClient {
     disconnect();
     _stateController.close();
     _telemetryController.close();
+    _parametersController.close();
   }
 }

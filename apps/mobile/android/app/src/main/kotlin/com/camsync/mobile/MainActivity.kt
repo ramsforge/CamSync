@@ -32,6 +32,7 @@ class MainActivity : FlutterActivity() {
     private var currentWidth = 1920
     private var currentHeight = 1080
     private var currentFps = 30
+    private var currentOrientation = "landscapeLeft"
 
     private var pendingWidth = 1920
     private var pendingHeight = 1080
@@ -144,7 +145,15 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "setOrientation" -> {
-                        result.success(true)
+                        val orientation = call.argument<String>("orientation") ?: "landscapeLeft"
+                        Log.i(TAG, "setOrientation requested: $orientation")
+                        val changed = (orientation != currentOrientation)
+                        currentOrientation = orientation
+                        if (changed && hardwareEncoder != null) {
+                            startStreaming(currentWidth, currentHeight, currentFps, currentLens, result)
+                        } else {
+                            result.success(true)
+                        }
                     }
                     "applyParameters" -> {
                         call.argument<Boolean>("torch")?.let { captureEngine?.setTorch(it) }
@@ -186,6 +195,7 @@ class MainActivity : FlutterActivity() {
         val surfaceTexture = entry?.surfaceTexture()
         val textureId = entry?.id() ?: 0L
 
+        val isPortrait = (currentOrientation == "portrait")
         captureEngine?.startCapture(
             lens = lens,
             requestedWidth = width,
@@ -193,11 +203,16 @@ class MainActivity : FlutterActivity() {
             requestedFps = fps,
             previewSurfaceTexture = surfaceTexture,
             onActualDimensions = { actualWidth, actualHeight, actualFps ->
-                Log.i(TAG, "Creating HardwareEncoder: ${actualWidth}x${actualHeight} @ ${actualFps}fps")
+                val encWidth = if (isPortrait) actualHeight else actualWidth
+                val encHeight = if (isPortrait) actualWidth else actualHeight
+                Log.i(TAG, "Creating HardwareEncoder: ${encWidth}x${encHeight} (portrait=$isPortrait) @ ${actualFps}fps")
                 hardwareEncoder = HardwareEncoder(
-                    width = actualWidth,
-                    height = actualHeight,
+                    width = encWidth,
+                    height = encHeight,
                     fps = actualFps,
+                    isPortrait = isPortrait,
+                    cameraWidth = actualWidth,
+                    cameraHeight = actualHeight,
                     onPacketEncoded = { packetBytes ->
                         videoServer?.broadcastPacket(packetBytes)
                     }

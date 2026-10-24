@@ -32,6 +32,9 @@ CAMSYNC_API int CamSync_FeedH264Nal(
 // Configures the decoder format for a specific resolution (e.g. 1280x720, 1920x1080)
 CAMSYNC_API int CamSync_SetVideoFormat(uint32_t width, uint32_t height);
 
+// Enables or disables horizontal mirroring for Virtual Camera and preview
+CAMSYNC_API void CamSync_SetMirror(int mirrored);
+
 // Returns 1 if DirectShow virtual camera is actively reading frames, 0 if idle
 CAMSYNC_API int CamSync_IsVirtualCamActive();
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:camsync_protocol/camsync_protocol.dart';
 
 /// Manages dual TCP socket servers on the phone:
@@ -28,6 +29,8 @@ class MobileStreamServer {
 
   int get connectedClientsCount => _videoClients.length;
 
+  static const MethodChannel _iosControlChannel = MethodChannel('com.camsync/control');
+
   MobileStreamServer({
     this.videoPort = CamSyncConstants.defaultVideoPort,
     this.controlPort = CamSyncConstants.defaultControlPort,
@@ -37,8 +40,26 @@ class MobileStreamServer {
   Future<void> start() async {
     await stop();
 
-    // Native Kotlin VideoStreamingServer handles port 8282 with zero-copy.
-    // Dart manages port 8283 for bidirectional JSON-RPC control and telemetry.
+    if (Platform.isIOS) {
+      // iOS manages port 8283 natively via ControlStreamingServer.swift (NWListener)
+      // Wire MethodChannel callbacks to stream controllers.
+      _iosControlChannel.setMethodCallHandler((call) async {
+        if (call.method == 'onControlMessage') {
+          final line = call.arguments as String?;
+          if (line != null && line.isNotEmpty) {
+            try {
+              final msg = ControlRpcMessage.parseLine(line);
+              _controlMessageController.add(msg);
+            } catch (_) {}
+          }
+        } else if (call.method == 'onClientCountChanged') {
+          final count = (call.arguments as num?)?.toInt() ?? 0;
+          _clientCountController.add(count);
+        }
+      });
+      return;
+    }
+
     _controlServer = await ServerSocket.bind(
       InternetAddress.anyIPv4,
       controlPort,
@@ -106,6 +127,10 @@ class MobileStreamServer {
 
   /// Broadcasts a JSON-RPC message (e.g. telemetry) on the control channel.
   void broadcastControlMessage(ControlRpcMessage message) {
+    if (Platform.isIOS) {
+      _iosControlChannel.invokeMethod('broadcast', {'message': message.encode()});
+      return;
+    }
     if (_controlClients.isEmpty) return;
     final encoded = message.encode();
     for (final client in List<Socket>.from(_controlClients)) {

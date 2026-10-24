@@ -20,6 +20,7 @@ typedef _c_feed_nal = Int32 Function(
 );
 typedef _c_is_active = Int32 Function();
 typedef _c_set_format = Int32 Function(Uint32 width, Uint32 height);
+typedef _c_set_mirror = Void Function(Int32 mirrored);
 typedef _c_get_latest_frame = Int32 Function(
   Pointer<Uint8> pOutBuffer,
   Uint32 bufferSize,
@@ -46,6 +47,7 @@ typedef _d_feed_nal = int Function(
 );
 typedef _d_is_active = int Function();
 typedef _d_set_format = int Function(int width, int height);
+typedef _d_set_mirror = void Function(int mirrored);
 typedef _d_get_latest_frame = int Function(
   Pointer<Uint8> pOutBuffer,
   int bufferSize,
@@ -78,6 +80,7 @@ class CamSyncNative {
   late final _d_feed_nal _feedNal;
   late final _d_is_active _isActive;
   late final _d_set_format _setFormat;
+  late final _d_set_mirror _setMirror;
   late final _d_get_latest_frame _getLatestFrame;
   late final _d_close _close;
 
@@ -102,6 +105,8 @@ class CamSyncNative {
   void _loadLibrary() {
     final possiblePaths = [
       'camsync_native.dll',
+      r'build64\Release\camsync_native.dll',
+      r'C:\Ramzy\CamSync\build64\Release\camsync_native.dll',
       r'..\..\build\native\Release\camsync_native.dll',
       r'build\native\Release\camsync_native.dll',
       r'C:\Ramzy\CamSync\build\native\Release\camsync_native.dll',
@@ -117,7 +122,7 @@ class CamSyncNative {
       }
     }
 
-    lib ??= DynamicLibrary.open(r'C:\Ramzy\CamSync\build\native\Release\camsync_native.dll');
+    lib ??= DynamicLibrary.open(r'C:\Ramzy\CamSync\build64\Release\camsync_native.dll');
     _dylib = lib;
 
     _init = _dylib.lookupFunction<_c_init, _d_init>('CamSync_Init');
@@ -125,6 +130,7 @@ class CamSyncNative {
     _feedNal = _dylib.lookupFunction<_c_feed_nal, _d_feed_nal>('CamSync_FeedH264Nal');
     _isActive = _dylib.lookupFunction<_c_is_active, _d_is_active>('CamSync_IsVirtualCamActive');
     _setFormat = _dylib.lookupFunction<_c_set_format, _d_set_format>('CamSync_SetVideoFormat');
+    _setMirror = _dylib.lookupFunction<_c_set_mirror, _d_set_mirror>('CamSync_SetMirror');
     _getLatestFrame = _dylib.lookupFunction<_c_get_latest_frame, _d_get_latest_frame>('CamSync_GetLatestFrame');
     _close = _dylib.lookupFunction<_c_close, _d_close>('CamSync_Close');
   }
@@ -171,6 +177,11 @@ class CamSyncNative {
   bool setVideoFormat(int width, int height) {
     if (!_initialized) return false;
     return _setFormat(width, height) == 1;
+  }
+
+  void setMirror(bool mirrored) {
+    if (!_initialized) return;
+    _setMirror(mirrored ? 1 : 0);
   }
 
   bool isVirtualCamActive() {

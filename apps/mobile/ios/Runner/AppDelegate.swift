@@ -24,6 +24,7 @@ class CameraPreviewTexture: NSObject, FlutterTexture {
     private var captureEngine: CameraCaptureEngine?
     private var hardwareEncoder: HardwareEncoder?
     private var videoServer: VideoStreamingServer?
+    private var controlServer: ControlStreamingServer?
     private var eventSink: FlutterEventSink?
 
     private var previewTexture: CameraPreviewTexture?
@@ -59,8 +60,37 @@ class CameraPreviewTexture: NSObject, FlutterTexture {
             videoServer?.start()
         }
 
+        // Initialize Native Control Streaming Server on port 8283
+        if controlServer == nil {
+            controlServer = ControlStreamingServer(port: 8283)
+            controlServer?.start()
+        }
+
         let cameraChannel = FlutterMethodChannel(name: "com.camsync/camera", binaryMessenger: controller.binaryMessenger)
+        let controlChannel = FlutterMethodChannel(name: "com.camsync/control", binaryMessenger: controller.binaryMessenger)
         let streamChannel = FlutterEventChannel(name: "com.camsync/video_stream", binaryMessenger: controller.binaryMessenger)
+
+        controlServer?.onMessageReceived = { message in
+            controlChannel.invokeMethod("onControlMessage", arguments: message)
+        }
+        controlServer?.onClientCountChanged = { count in
+            controlChannel.invokeMethod("onClientCountChanged", arguments: count)
+        }
+
+        controlChannel.setMethodCallHandler { [weak self] (call, result) in
+            guard let self = self else { return }
+            if call.method == "broadcast" {
+                if let args = call.arguments as? [String: Any],
+                   let message = args["message"] as? String {
+                    self.controlServer?.broadcastMessage(message)
+                    result(true)
+                } else {
+                    result(false)
+                }
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
 
         streamChannel.setStreamHandler(self)
         captureEngine = CameraCaptureEngine()

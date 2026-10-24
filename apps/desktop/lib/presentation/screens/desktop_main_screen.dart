@@ -55,6 +55,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   StreamSubscription? _usbSub;
   StreamSubscription? _stateSub;
   StreamSubscription? _telemetrySub;
+  StreamSubscription? _paramsSub;
 
   ui.Image? _previewImage;
   Timer? _previewTimer;
@@ -64,6 +65,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   @override
   void initState() {
     super.initState();
+    _native.setMirror(_params.mirror);
     if (widget.autoStartUsb) {
       _usbManager.startPolling();
     }
@@ -83,6 +85,16 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
 
     _telemetrySub = _streamClient.onTelemetry.listen((t) {
       setState(() => _telemetry = t);
+    });
+
+    _paramsSub = _streamClient.onParametersChanged.listen((remoteParams) {
+      if (remoteParams.resolution != _params.resolution) {
+        _native.setVideoFormat(remoteParams.resolution.width, remoteParams.resolution.height);
+      }
+      if (remoteParams.mirror != _params.mirror) {
+        _native.setMirror(remoteParams.mirror);
+      }
+      setState(() => _params = remoteParams);
     });
   }
 
@@ -180,6 +192,9 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
     if (newParams.resolution != _params.resolution) {
       _native.setVideoFormat(newParams.resolution.width, newParams.resolution.height);
     }
+    if (newParams.mirror != _params.mirror) {
+      _native.setMirror(newParams.mirror);
+    }
     setState(() => _params = newParams);
     _streamClient.sendParameters(newParams);
   }
@@ -190,6 +205,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
     _usbSub?.cancel();
     _stateSub?.cancel();
     _telemetrySub?.cancel();
+    _paramsSub?.cancel();
     _usbManager.dispose();
     _streamClient.dispose();
     _ipController.dispose();

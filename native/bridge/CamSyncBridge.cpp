@@ -24,6 +24,11 @@ static uint64_t g_frameCounter = 0;
 
 static IMFTransform* g_pDecoder = nullptr;
 static bool g_mfInitialized = false;
+static bool g_mirrorEnabled = false;
+
+CAMSYNC_API void CamSync_SetMirror(int mirrored) {
+    g_mirrorEnabled = (mirrored != 0);
+}
 static uint32_t g_decoderWidth = 1920;
 static uint32_t g_decoderHeight = 1080;
 static std::vector<uint8_t> g_rgbBuffer;
@@ -160,7 +165,17 @@ CAMSYNC_API int CamSync_WriteFrame(
     uint32_t targetIndex = (g_pSharedMem->header.activeBufferIndex == 0) ? 1 : 0;
     uint8_t* pDest = (targetIndex == 0) ? g_pSharedMem->buffer0 : g_pSharedMem->buffer1;
 
-    memcpy(pDest, pData, frameSize);
+    if (g_mirrorEnabled && pixelFormat == static_cast<uint32_t>(CamSyncPixelFormat::RGB32)) {
+        for (uint32_t y = 0; y < height; ++y) {
+            const uint32_t* srcRow = reinterpret_cast<const uint32_t*>(pData + y * width * 4);
+            uint32_t* dstRow = reinterpret_cast<uint32_t*>(pDest + y * width * 4);
+            for (uint32_t x = 0; x < width; ++x) {
+                dstRow[x] = srcRow[width - 1 - x];
+            }
+        }
+    } else {
+        memcpy(pDest, pData, frameSize);
+    }
 
     // Update shared memory header
     g_pSharedMem->header.magic = CAMSYNC_MAGIC;

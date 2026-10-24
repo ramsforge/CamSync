@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   CameraLens _selectedLens = CameraLens.backWide;
   bool _torchEnabled = false;
   double _currentZoom = 1.0;
+  OrientationMode _orientation = OrientationMode.landscapeLeft;
 
   DeviceTelemetry _lastTelemetry = const DeviceTelemetry(
     batteryLevel: 100,
@@ -103,9 +104,27 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _clientCount = count;
       });
+      if (count > 0) {
+        _broadcastCurrentParameters();
+      }
     });
 
     _batteryMonitor.start();
+  }
+
+  void _broadcastCurrentParameters() {
+    final params = CameraParameters(
+      lens: _selectedLens,
+      resolution: _selectedResolution,
+      fps: _selectedFps,
+      torch: _torchEnabled,
+      zoom: _currentZoom,
+      oledPowerSave: _oledPowerSave,
+      orientation: _orientation,
+    );
+    _streamServer.broadcastControlMessage(
+      ControlRpcMessage.parametersNotification(parameters: params),
+    );
   }
 
   void _handleControlMessage(ControlRpcMessage msg) {
@@ -114,6 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final lensChanged = params.lens != _selectedLens;
       final resolutionChanged = params.resolution != _selectedResolution;
       final fpsChanged = params.fps != _selectedFps;
+      final orientationChanged = params.orientation != _orientation;
 
       setState(() {
         _selectedResolution = params.resolution;
@@ -122,11 +142,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _torchEnabled = params.torch;
         _currentZoom = params.zoom;
         _oledPowerSave = params.oledPowerSave;
+        _orientation = params.orientation;
       });
 
       if (_isStreaming) {
         if (lensChanged || resolutionChanged || fpsChanged) {
-          _switchLens(params.lens);
+          _switchLens(params.lens, broadcast: false);
         }
       } else {
         if (lensChanged) {
@@ -134,6 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
+      if (orientationChanged) {
+        _cameraChannel.setOrientation(params.orientation);
+      }
       _cameraChannel.setTorch(_torchEnabled);
       _cameraChannel.setZoom(_currentZoom);
       _cameraChannel.setFocus(params.focusMode, params.focusDistance);
@@ -161,6 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _textureId = textureId;
         });
       }
+      _broadcastCurrentParameters();
     } else {
       await _cameraChannel.stopCapture();
       setState(() {
@@ -168,10 +193,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _torchEnabled = false;
         _textureId = null;
       });
+      _broadcastCurrentParameters();
     }
   }
 
-  void _switchLens(CameraLens lens) async {
+  void _switchLens(CameraLens lens, {bool broadcast = true}) async {
     setState(() => _selectedLens = lens);
     if (_isStreaming) {
       final textureId = await _cameraChannel.startCapture(
@@ -184,14 +210,19 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       _cameraChannel.setZoom(_currentZoom);
       _cameraChannel.setTorch(_torchEnabled);
+      _cameraChannel.setOrientation(_orientation);
     } else {
       _cameraChannel.setLens(lens);
+    }
+    if (broadcast) {
+      _broadcastCurrentParameters();
     }
   }
 
   void _toggleTorch() {
     setState(() => _torchEnabled = !_torchEnabled);
     _cameraChannel.setTorch(_torchEnabled);
+    _broadcastCurrentParameters();
   }
 
   @override
@@ -487,7 +518,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     onChanged: _isStreaming
                         ? null
                         : (res) {
-                            if (res != null) setState(() => _selectedResolution = res);
+                            if (res != null) {
+                              setState(() => _selectedResolution = res);
+                              _broadcastCurrentParameters();
+                            }
                           },
                   ),
                   const SizedBox(width: 12),
@@ -504,7 +538,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     onChanged: _isStreaming
                         ? null
                         : (fps) {
-                            if (fps != null) setState(() => _selectedFps = fps);
+                            if (fps != null) {
+                              setState(() => _selectedFps = fps);
+                              _broadcastCurrentParameters();
+                            }
                           },
                   ),
                   const Spacer(),
