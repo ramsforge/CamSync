@@ -42,7 +42,7 @@ class MobileStreamServer {
     _controlServer = await ServerSocket.bind(
       InternetAddress.anyIPv4,
       controlPort,
-      shared: true,
+      shared: false,
     );
     _controlServer?.listen(_onControlClientConnected);
   }

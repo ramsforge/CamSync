@@ -336,9 +336,9 @@ CAMSYNC_API int CamSync_FeedH264Nal(
 
                         for (int x = 0; x < w; x += 2) {
                             int uvIndex = uvRow + x;
-                            // Standard NV12: Even byte is U (Cb), odd byte is V (Cr)
-                            int U = pNv12[uvIndex];
-                            int V = pNv12[uvIndex + 1];
+                            // Hardware decoder NV12 chroma plane has V (Cr) at even offset and U (Cb) at odd offset
+                            int V = pNv12[uvIndex];
+                            int U = pNv12[uvIndex + 1];
 
                             int d = U - 128;
                             int e = V - 128;

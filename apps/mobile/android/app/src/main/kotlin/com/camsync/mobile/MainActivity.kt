@@ -33,6 +33,32 @@ class MainActivity : FlutterActivity() {
     private var currentHeight = 1080
     private var currentFps = 30
 
+    private var pendingWidth = 1920
+    private var pendingHeight = 1080
+    private var pendingFps = 30
+    private var pendingLens = "back_wide"
+    private var pendingResult: MethodChannel.Result? = null
+    private val REQUEST_CAMERA_CODE = 1001
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CAMERA_CODE) {
+            val res = pendingResult ?: return
+            pendingResult = null
+            if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Log.i(TAG, "Camera permission granted by user! Starting stream...")
+                startStreaming(pendingWidth, pendingHeight, pendingFps, pendingLens, res)
+            } else {
+                Log.w(TAG, "Camera permission denied by user.")
+                res.success(mapOf("success" to false, "error" to "Camera permission denied"))
+            }
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -63,7 +89,17 @@ class MainActivity : FlutterActivity() {
                         val fps = call.argument<Int>("fps") ?: 30
                         val lens = call.argument<String>("lens") ?: "back_wide"
 
-                        startStreaming(width, height, fps, lens, result)
+                        if (checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            Log.i(TAG, "Camera permission not granted. Prompting user...")
+                            pendingWidth = width
+                            pendingHeight = height
+                            pendingFps = fps
+                            pendingLens = lens
+                            pendingResult = result
+                            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), REQUEST_CAMERA_CODE)
+                        } else {
+                            startStreaming(width, height, fps, lens, result)
+                        }
                     }
                     "stopCapture" -> {
                         stopStreaming()
@@ -176,6 +212,12 @@ class MainActivity : FlutterActivity() {
                 runOnUiThread {
                     Log.i(TAG, "startStreaming success! textureId=$textureId")
                     result.success(mapOf("success" to true, "textureId" to textureId))
+                }
+            },
+            onError = { errMsg ->
+                runOnUiThread {
+                    Log.e(TAG, "startStreaming failed: $errMsg")
+                    result.success(mapOf("success" to false, "error" to errMsg))
                 }
             }
         )

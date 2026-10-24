@@ -81,7 +81,8 @@ class CameraCaptureEngine(private val context: Context) {
         previewSurfaceTexture: SurfaceTexture?,
         onActualDimensions: (Int, Int, Int) -> Unit,
         onFrame: (ByteArray) -> Unit,
-        onStarted: () -> Unit
+        onStarted: () -> Unit,
+        onError: (String) -> Unit = {}
     ) {
         stop()
 
@@ -168,6 +169,7 @@ class CameraCaptureEngine(private val context: Context) {
                 onStarted()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Camera 1: ${e.message}", e)
+                onError(e.message ?: "Failed to open camera")
             }
         }
     }

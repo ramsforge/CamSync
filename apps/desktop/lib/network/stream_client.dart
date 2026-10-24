@@ -74,16 +74,20 @@ class StreamClient {
     }
 
     try {
-      // Connect Video Socket (TCP 8282)
-      _videoSocket = await Socket.connect(host, videoPort, timeout: const Duration(seconds: 4));
+      // Connect Video Socket (TCP 8282) - Required
+      _videoSocket = await Socket.connect(host, videoPort, timeout: const Duration(seconds: 5));
       _videoSocket?.setOption(SocketOption.tcpNoDelay, true);
-
-      // Connect Control Socket (TCP 8283)
-      _controlSocket = await Socket.connect(host, controlPort, timeout: const Duration(seconds: 4));
-      _controlSocket?.setOption(SocketOption.tcpNoDelay, true);
-
       _setupVideoListener();
-      _setupControlListener();
+
+      // Connect Control Socket (TCP 8283) - Optional (e.g. iOS or firewalled mobile devices)
+      try {
+        _controlSocket = await Socket.connect(host, controlPort, timeout: const Duration(seconds: 2));
+        _controlSocket?.setOption(SocketOption.tcpNoDelay, true);
+        _setupControlListener();
+      } catch (_) {
+        // Control socket optional: live video stream proceeds normally without interruption
+      }
+
       _startMetricsTimer();
 
       _setState(CamSyncConnectionState.connected);
