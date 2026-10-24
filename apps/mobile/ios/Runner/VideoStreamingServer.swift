@@ -75,7 +75,7 @@ class VideoStreamingServer {
 
             // Immediately dispatch SPS and PPS config packets so the Windows decoder initializes instantly
             for config in self.cachedConfigPackets {
-                connection.send(content: config, completion: .idempotent)
+                connection.send(content: config, completion: .contentProcessed { _ in })
             }
         }
     }
@@ -92,7 +92,7 @@ class VideoStreamingServer {
 
             guard !self.connections.isEmpty else { return }
             for connection in self.connections {
-                connection.send(content: data, completion: .idempotent)
+                connection.send(content: data, completion: .contentProcessed { _ in })
             }
         }
     }

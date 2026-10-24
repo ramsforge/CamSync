@@ -105,35 +105,25 @@ class HardwareEncoder {
 
         // Get video data buffer
         guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        let totalLength = CMBlockBufferGetDataLength(dataBuffer)
+        guard totalLength > 4 else { return }
 
-        // Ensure contiguous memory buffer
-        var contiguousBuffer: CMBlockBuffer?
-        if !CMBlockBufferIsContiguous(dataBuffer) {
-            let status = CMBlockBufferCreateContiguous(
-                allocator: kCFAllocatorDefault,
-                sourceBuffer: dataBuffer,
-                blockAllocator: kCFAllocatorDefault,
-                customBlockSource: nil,
-                offsetToData: 0,
-                dataLength: 0,
-                flags: 0,
-                blockBufferOut: &contiguousBuffer
-            )
-            guard status == noErr, let cont = contiguousBuffer else { return }
+        var rawData = Data(count: totalLength)
+        let copyStatus = rawData.withUnsafeMutableBytes { ptr -> OSStatus in
+            guard let baseAddress = ptr.baseAddress else { return -1 }
+            return CMBlockBufferCopyDataBytes(dataBuffer, atOffset: 0, byteLength: totalLength, destination: baseAddress)
         }
-        let targetBuffer = contiguousBuffer ?? dataBuffer
-
-        var totalLength: Int = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        guard CMBlockBufferGetDataPointer(targetBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &totalLength, dataPointerOut: &dataPointer) == noErr,
-              let dataPtr = dataPointer else { return }
+        guard copyStatus == noErr else { return }
 
         var bufferOffset = 0
         let avcHeaderLength = 4
 
         while bufferOffset + avcHeaderLength <= totalLength {
             var nalUnitLength: UInt32 = 0
-            memcpy(&nalUnitLength, dataPtr + bufferOffset, avcHeaderLength)
+            rawData.withUnsafeBytes { ptr in
+                guard let base = ptr.baseAddress else { return }
+                memcpy(&nalUnitLength, base + bufferOffset, avcHeaderLength)
+            }
             nalUnitLength = CFSwapInt32BigToHost(nalUnitLength)
 
             let nalLen = Int(nalUnitLength)
@@ -141,7 +131,7 @@ class HardwareEncoder {
                 break
             }
 
-            let nalData = Data(bytes: dataPtr + bufferOffset + avcHeaderLength, count: nalLen)
+            let nalData = rawData.subdata(in: (bufferOffset + avcHeaderLength)..<(bufferOffset + avcHeaderLength + nalLen))
             // Type 2: Keyframe, Type 3: P-frame
             emitPacket(type: isKeyframe ? 2 : 3, payload: nalData)
 
