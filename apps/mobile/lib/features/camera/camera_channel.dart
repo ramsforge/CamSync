@@ -114,4 +114,14 @@ class CameraChannel {
       return {};
     }
   }
+
+  /// Fetches device model / name (e.g. "iPhone 12", "Samsung Galaxy A56").
+  Future<String?> getDeviceName() async {
+    try {
+      final name = await _methodChannel.invokeMethod<String>('getDeviceName');
+      return name;
+    } catch (_) {
+      return null;
+    }
+  }
 }

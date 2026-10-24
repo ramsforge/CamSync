@@ -5,3 +5,4 @@ export 'src/constants.dart';
 export 'src/binary_packet.dart';
 export 'src/models.dart';
 export 'src/control_rpc.dart';
+export 'src/discovery_models.dart';

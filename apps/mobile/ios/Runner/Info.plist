@@ -53,5 +53,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>CamSync requires local network access to automatically discover and stream live camera video to your Windows PC companion.</string>
 </dict>
 </plist>

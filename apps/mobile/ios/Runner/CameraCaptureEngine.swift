@@ -32,8 +32,10 @@ class CameraCaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private func configureAndStart(lens: String, width: Int32, height: Int32, fps: Int32, completion: @escaping (Bool) -> Void) {
         captureSession.beginConfiguration()
 
-        // Choose sessionPreset dynamically based on requested resolution
-        if (width >= 3840 || height >= 2160) && captureSession.canSetSessionPreset(.hd4K3840x2160) {
+        // When 60 FPS is requested, use .inputPriority to allow high frame rate AVCaptureDevice.Format selection
+        if fps >= 60 && captureSession.canSetSessionPreset(.inputPriority) {
+            captureSession.sessionPreset = .inputPriority
+        } else if (width >= 3840 || height >= 2160) && captureSession.canSetSessionPreset(.hd4K3840x2160) {
             captureSession.sessionPreset = .hd4K3840x2160
         } else if (width >= 1920 || height >= 1080) && captureSession.canSetSessionPreset(.hd1920x1080) {
             captureSession.sessionPreset = .hd1920x1080
@@ -120,27 +122,59 @@ class CameraCaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 }
             }
 
-            // Configure frame rate safely against supported ranges to prevent NSInvalidArgumentException
+            // Configure high frame rate (up to 60 FPS) and format
             do {
                 try device.lockForConfiguration()
                 let targetFps = Double(fps)
-                var supportedRange: AVFrameRateRange?
-                for range in device.activeFormat.videoSupportedFrameRateRanges {
-                    if targetFps >= range.minFrameRate && targetFps <= range.maxFrameRate {
-                        supportedRange = range
-                        break
+                let reqW = Int32(width)
+                let reqH = Int32(height)
+
+                // When 60 FPS is requested or sessionPreset is .inputPriority, search device.formats for matching 60 FPS format
+                var bestFormat: AVCaptureDevice.Format?
+                var bestRange: AVFrameRateRange?
+
+                for format in device.formats {
+                    let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                    let mediaSubType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+                    if mediaSubType == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange || mediaSubType == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
+                        if dims.width == reqW && dims.height == reqH {
+                            for range in format.videoSupportedFrameRateRanges {
+                                if targetFps >= range.minFrameRate && targetFps <= range.maxFrameRate {
+                                    bestFormat = format
+                                    bestRange = range
+                                    break
+                                }
+                            }
+                        }
                     }
+                    if bestFormat != nil { break }
                 }
 
-                if let range = supportedRange {
+                if let chosenFormat = bestFormat, let _ = bestRange {
+                    device.activeFormat = chosenFormat
                     let duration = CMTime(value: 1, timescale: CMTimeScale(targetFps))
                     device.activeVideoMinFrameDuration = duration
                     device.activeVideoMaxFrameDuration = duration
-                } else if let fallbackRange = device.activeFormat.videoSupportedFrameRateRanges.first {
-                    let clampedFps = min(max(targetFps, fallbackRange.minFrameRate), fallbackRange.maxFrameRate)
-                    let duration = CMTime(value: 1, timescale: CMTimeScale(clampedFps))
-                    device.activeVideoMinFrameDuration = duration
-                    device.activeVideoMaxFrameDuration = duration
+                    print("[CameraCaptureEngine] Configured activeFormat for \(targetFps) FPS: \(chosenFormat)")
+                } else {
+                    var supportedRange: AVFrameRateRange?
+                    for range in device.activeFormat.videoSupportedFrameRateRanges {
+                        if targetFps >= range.minFrameRate && targetFps <= range.maxFrameRate {
+                            supportedRange = range
+                            break
+                        }
+                    }
+
+                    if let range = supportedRange {
+                        let duration = CMTime(value: 1, timescale: CMTimeScale(targetFps))
+                        device.activeVideoMinFrameDuration = duration
+                        device.activeVideoMaxFrameDuration = duration
+                    } else if let fallbackRange = device.activeFormat.videoSupportedFrameRateRanges.first {
+                        let clampedFps = min(max(targetFps, fallbackRange.minFrameRate), fallbackRange.maxFrameRate)
+                        let duration = CMTime(value: 1, timescale: CMTimeScale(clampedFps))
+                        device.activeVideoMinFrameDuration = duration
+                        device.activeVideoMaxFrameDuration = duration
+                    }
                 }
                 device.unlockForConfiguration()
             } catch {

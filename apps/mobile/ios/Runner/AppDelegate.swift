@@ -229,6 +229,9 @@ class CameraPreviewTexture: NSObject, FlutterTexture {
                     "bitrateKbps": 4000
                 ])
 
+            case "getDeviceName":
+                result(UIDevice.current.name)
+
             default:
                 result(FlutterMethodNotImplemented)
             }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:camsync_protocol/camsync_protocol.dart';
 import '../../device/usb_manager.dart';
 import '../../network/stream_client.dart';
+import '../../network/discovery_service.dart';
 import '../../native/camsync_ffi.dart';
 
 class DesktopMainScreen extends StatefulWidget {
@@ -17,13 +18,15 @@ class DesktopMainScreen extends StatefulWidget {
 class _DesktopMainScreenState extends State<DesktopMainScreen> {
   final UsbManager _usbManager = UsbManager();
   final StreamClient _streamClient = StreamClient();
+  final DeviceDiscoveryService _discoveryService = DeviceDiscoveryService();
   final CamSyncNative _native = CamSyncNative();
 
-  final TextEditingController _ipController = TextEditingController(text: '192.168.1.100');
+  final TextEditingController _ipController = TextEditingController();
   int _connectionModeIndex = 0; // 0 = USB, 1 = Wi-Fi
 
   CamSyncConnectionState _connectionState = CamSyncConnectionState.disconnected;
   List<UsbDevice> _usbDevices = [];
+  List<DiscoveredDevice> _discoveredDevices = [];
 
   CameraParameters _params = const CameraParameters(
     resolution: CameraResolution.hd720,
@@ -56,6 +59,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   StreamSubscription? _stateSub;
   StreamSubscription? _telemetrySub;
   StreamSubscription? _paramsSub;
+  StreamSubscription? _discoverySub;
 
   ui.Image? _previewImage;
   Timer? _previewTimer;
@@ -95,6 +99,18 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
         _native.setMirror(remoteParams.mirror);
       }
       setState(() => _params = remoteParams);
+    });
+
+    _discoveryService.start();
+    _discoverySub = _discoveryService.onDevicesChanged.listen((devices) {
+      if (mounted) {
+        setState(() {
+          _discoveredDevices = devices;
+          if (_ipController.text.trim().isEmpty && devices.isNotEmpty) {
+            _ipController.text = devices.first.ip;
+          }
+        });
+      }
     });
   }
 
@@ -149,6 +165,11 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
       _streamClient.sendParameters(_params);
       _streamClient.requestStream(true);
     }
+  }
+
+  Future<void> _connectWifiToIp(String targetIp) async {
+    _ipController.text = targetIp;
+    await _connectWifi();
   }
 
   Future<void> _connectWifi() async {
@@ -206,6 +227,8 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
     _stateSub?.cancel();
     _telemetrySub?.cancel();
     _paramsSub?.cancel();
+    _discoverySub?.cancel();
+    _discoveryService.dispose();
     _usbManager.dispose();
     _streamClient.dispose();
     _ipController.dispose();
@@ -322,8 +345,52 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
                 ),
               ),
             ] else ...[
+              if (!isConnected) ...[
+                if (_discoveredDevices.isNotEmpty) ...[
+                  for (final device in _discoveredDevices) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.greenAccent.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.greenAccent.withOpacity(0.35)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.wifi_tethering, color: Colors.greenAccent, size: 15),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${device.name} (${device.ip})',
+                            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: isConnecting ? null : () => _connectWifiToIp(device.ip),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.greenAccent,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                              minimumSize: const Size(0, 26),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            child: const Text('Connect', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                ] else ...[
+                  Text(
+                    'Searching for phone on Wi-Fi...',
+                    style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+              ],
               SizedBox(
-                width: 150,
+                width: 130,
                 height: 36,
                 child: TextField(
                   controller: _ipController,
@@ -333,7 +400,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
                     filled: true,
                     fillColor: const Color(0xFF1F232F),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                    hintText: 'Phone IP',
+                    hintText: 'Manual IP',
                   ),
                 ),
               ),

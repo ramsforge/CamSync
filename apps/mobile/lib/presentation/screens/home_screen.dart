@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:camsync_protocol/camsync_protocol.dart';
 import '../../core/network/stream_server.dart';
+import '../../core/network/discovery_broadcaster.dart';
 import '../../features/camera/camera_channel.dart';
 import '../../features/telemetry/battery_monitor.dart';
 
@@ -17,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final MobileStreamServer _streamServer = MobileStreamServer();
   final CameraChannel _cameraChannel = CameraChannel();
+  final DiscoveryBroadcaster _discoveryBroadcaster = DiscoveryBroadcaster();
   late final BatteryMonitor _batteryMonitor = BatteryMonitor(
     onGetSystemStats: _cameraChannel.getSystemStats,
   );
@@ -75,6 +77,10 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
 
     await _streamServer.start();
+
+    final deviceName = await _cameraChannel.getDeviceName();
+    _discoveryBroadcaster.updateInfo(name: deviceName, ip: _localIp);
+    await _discoveryBroadcaster.start();
   }
 
   void _setupListeners() {
@@ -233,6 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _clientCountSub?.cancel();
     _batteryMonitor.dispose();
     _streamServer.dispose();
+    _discoveryBroadcaster.stop();
     WakelockPlus.disable();
     super.dispose();
   }

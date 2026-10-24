@@ -38,14 +38,14 @@ class HardwareEncoder {
         )
 
         if status == noErr, let session = compressionSession {
-            // Dynamic Bitrate: 12 Mbps for 4K, 4 Mbps for 1080p, 2.5 Mbps for 720p
+            // Dynamic Bitrate: tuned for 30 FPS vs 60 FPS
             let bitrate: Int
             if width >= 3840 || height >= 2160 {
-                bitrate = 12_000_000
+                bitrate = fps >= 60 ? 16_000_000 : 12_000_000
             } else if width >= 1920 || height >= 1080 {
-                bitrate = 4_000_000
+                bitrate = fps >= 60 ? 6_000_000 : 4_000_000
             } else {
-                bitrate = 2_500_000
+                bitrate = fps >= 60 ? 4_000_000 : 2_500_000
             }
 
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)

@@ -110,19 +110,36 @@ class CameraCaptureEngine(private val context: Context) {
                 Log.i(TAG, "Chosen preview size: ${chosenSize.width}x${chosenSize.height}")
                 params.setPreviewSize(chosenSize.width, chosenSize.height)
 
-                // Pick FPS range
+                // Pick FPS range: prioritize ranges matching requested FPS with highest minimum
                 val supportedFpsRanges = params.supportedPreviewFpsRange ?: listOf()
                 var chosenFpsRange = supportedFpsRanges.firstOrNull() ?: intArrayOf(15000, 30000)
                 val targetFps = requestedFps * 1000
 
+                var bestScore = Int.MAX_VALUE
                 for (range in supportedFpsRanges) {
-                    if (range[1] <= targetFps && range[1] >= chosenFpsRange[1]) {
+                    val deltaMax = Math.abs(range[1] - targetFps)
+                    // Score: minimize difference from target max FPS, then maximize min FPS
+                    val score = deltaMax * 1000 - range[0]
+                    if (score < bestScore) {
+                        bestScore = score
                         chosenFpsRange = range
                     }
                 }
-                val actualFps = chosenFpsRange[1] / 1000
-                Log.i(TAG, "Chosen FPS range: [${chosenFpsRange[0]}, ${chosenFpsRange[1]}] (max: $actualFps)")
+                val actualFps = Math.max(chosenFpsRange[1] / 1000, 1)
+                Log.i(TAG, "Chosen FPS range: [${chosenFpsRange[0]}, ${chosenFpsRange[1]}] (actual: $actualFps)")
                 params.setPreviewFpsRange(chosenFpsRange[0], chosenFpsRange[1])
+                try {
+                    params.setPreviewFrameRate(actualFps)
+                } catch (_: Exception) {}
+
+                // Samsung / OEM vendor high-fps hints
+                try {
+                    params.set("video-frame-rate", actualFps.toString())
+                    if (actualFps >= 60) {
+                        params.set("fast-fps-mode", 1)
+                        params.set("video-hfr", "60")
+                    }
+                } catch (_: Exception) {}
 
                 // Focus mode
                 val focusModes = params.supportedFocusModes ?: listOf()
@@ -139,9 +156,10 @@ class CameraCaptureEngine(private val context: Context) {
                 // Notify actual dimensions so encoder is configured
                 onActualDimensions(chosenSize.width, chosenSize.height, actualFps)
 
-                // Allocate 3 buffers for smooth pipeline
+                // Allocate 8 buffers for 60 FPS (prevents preview queue starvation at 16.6ms intervals)
+                val bufferCount = if (actualFps >= 60) 8 else 4
                 val bufferSize = chosenSize.width * chosenSize.height * 3 / 2
-                for (i in 0 until 3) {
+                for (i in 0 until bufferCount) {
                     cam.addCallbackBuffer(ByteArray(bufferSize))
                 }
 

@@ -11,7 +11,15 @@ class HardwareEncoder(
     val width: Int,
     val height: Int,
     val fps: Int = 30,
-    private val bitrateBps: Int = 4_000_000,
+    private val bitrateBps: Int = if (fps >= 60) {
+        if (width >= 3840 || height >= 2160) 16_000_000
+        else if (width >= 1920 || height >= 1080) 6_000_000
+        else 4_000_000
+    } else {
+        if (width >= 3840 || height >= 2160) 12_000_000
+        else if (width >= 1920 || height >= 1080) 4_000_000
+        else 2_500_000
+    },
     private val isPortrait: Boolean = false,
     private val cameraWidth: Int = width,
     private val cameraHeight: Int = height,
@@ -56,7 +64,8 @@ class HardwareEncoder(
             try {
                 // Baseline profile = NO B-frames = zero reordering latency
                 setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-                setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
+                // Use Level 4.2 to legally allow up to 1080p @ 60 FPS without encoder throttling
+                setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel42)
             } catch (_: Exception) {}
 
             try {
@@ -102,7 +111,7 @@ class HardwareEncoder(
         if (!isEncoding) return
 
         try {
-            val inputBufferIndex = codec.dequeueInputBuffer(2_000L) // 2ms timeout
+            val inputBufferIndex = codec.dequeueInputBuffer(10_000L) // 10ms timeout for smooth 60 FPS
             if (inputBufferIndex >= 0) {
                 val inputBuffer = codec.getInputBuffer(inputBufferIndex) ?: return
                 inputBuffer.clear()

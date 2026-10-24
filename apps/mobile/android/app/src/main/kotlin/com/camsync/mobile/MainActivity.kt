@@ -163,6 +163,12 @@ class MainActivity : FlutterActivity() {
                     "getSystemStats" -> {
                         result.success(getSystemStats())
                     }
+                    "getDeviceName" -> {
+                        val manufacturer = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+                        val model = Build.MODEL
+                        val name = if (model.startsWith(manufacturer, ignoreCase = true)) model else "$manufacturer $model"
+                        result.success(name)
+                    }
                     else -> {
                         Log.w(TAG, "Unhandled method: ${call.method}")
                         result.notImplemented()

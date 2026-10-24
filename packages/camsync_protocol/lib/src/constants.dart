@@ -17,6 +17,9 @@ class CamSyncConstants {
   /// Default TCP port for bidirectional JSON-RPC control and telemetry.
   static const int defaultControlPort = 8283;
 
+  /// Default UDP port for local Wi-Fi auto-discovery beacons and probes.
+  static const int defaultDiscoveryPort = 8284;
+
   /// mDNS service discovery type.
   static const String mdnsServiceType = '_camsync._tcp';
 
