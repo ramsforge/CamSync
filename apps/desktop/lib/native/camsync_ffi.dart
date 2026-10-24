@@ -125,14 +125,46 @@ class CamSyncNative {
     lib ??= DynamicLibrary.open(r'C:\Ramzy\CamSync\build64\Release\camsync_native.dll');
     _dylib = lib;
 
-    _init = _dylib.lookupFunction<_c_init, _d_init>('CamSync_Init');
-    _writeFrame = _dylib.lookupFunction<_c_write_frame, _d_write_frame>('CamSync_WriteFrame');
-    _feedNal = _dylib.lookupFunction<_c_feed_nal, _d_feed_nal>('CamSync_FeedH264Nal');
-    _isActive = _dylib.lookupFunction<_c_is_active, _d_is_active>('CamSync_IsVirtualCamActive');
-    _setFormat = _dylib.lookupFunction<_c_set_format, _d_set_format>('CamSync_SetVideoFormat');
-    _setMirror = _dylib.lookupFunction<_c_set_mirror, _d_set_mirror>('CamSync_SetMirror');
-    _getLatestFrame = _dylib.lookupFunction<_c_get_latest_frame, _d_get_latest_frame>('CamSync_GetLatestFrame');
-    _close = _dylib.lookupFunction<_c_close, _d_close>('CamSync_Close');
+    try {
+      _init = _dylib.lookupFunction<_c_init, _d_init>('CamSync_Init');
+    } catch (_) {
+      _init = () => 0;
+    }
+    try {
+      _writeFrame = _dylib.lookupFunction<_c_write_frame, _d_write_frame>('CamSync_WriteFrame');
+    } catch (_) {
+      _writeFrame = (p, w, h, f, t) => 0;
+    }
+    try {
+      _feedNal = _dylib.lookupFunction<_c_feed_nal, _d_feed_nal>('CamSync_FeedH264Nal');
+    } catch (_) {
+      _feedNal = (p, l, f, t) => 0;
+    }
+    try {
+      _isActive = _dylib.lookupFunction<_c_is_active, _d_is_active>('CamSync_IsVirtualCamActive');
+    } catch (_) {
+      _isActive = () => 0;
+    }
+    try {
+      _setFormat = _dylib.lookupFunction<_c_set_format, _d_set_format>('CamSync_SetVideoFormat');
+    } catch (_) {
+      _setFormat = (w, h) => 0;
+    }
+    try {
+      _setMirror = _dylib.lookupFunction<_c_set_mirror, _d_set_mirror>('CamSync_SetMirror');
+    } catch (_) {
+      _setMirror = (m) {};
+    }
+    try {
+      _getLatestFrame = _dylib.lookupFunction<_c_get_latest_frame, _d_get_latest_frame>('CamSync_GetLatestFrame');
+    } catch (_) {
+      _getLatestFrame = (b, s, w, h, fn) => 0;
+    }
+    try {
+      _close = _dylib.lookupFunction<_c_close, _d_close>('CamSync_Close');
+    } catch (_) {
+      _close = () {};
+    }
   }
 
   bool init() {

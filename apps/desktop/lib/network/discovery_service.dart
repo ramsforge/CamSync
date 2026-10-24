@@ -30,7 +30,7 @@ class DeviceDiscoveryService {
         InternetAddress.anyIPv4,
         discoveryPort,
         reuseAddress: true,
-        reusePort: true,
+        reusePort: !Platform.isWindows,
       );
       _socket?.broadcastEnabled = true;
 
