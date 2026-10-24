@@ -14,9 +14,9 @@ Get the latest pre-compiled binaries from the **[GitHub Releases Page](https://g
 
 | Platform | Download | Description |
 | :--- | :--- | :--- |
-| **Windows PC** | **`CamSync-v1.0.0-Windows-Portable.zip`** | Portable companion app, virtual camera driver DLLs, registration scripts & test tools. |
-| **Android Phone** | **`CamSync-v1.0.0-Android.apk`** | Release APK with Camera2 multi-lens & hardware H.264 encoder. |
-| **Apple iOS** | **`CamSync-v1.0.0-iOS-unsigned.ipa`** / **`Source.zip`** | Sideloadable via AltStore / Sideloadly or build via Xcode. |
+| **Windows PC** | [**`CamSync-v1.0.0-Windows-Portable.zip`**](https://github.com/ramsforge/CamSync/releases/download/v1.0.0/CamSync-v1.0.0-Windows-Portable.zip) | Portable companion app, virtual camera driver DLLs, registration scripts & test tools. |
+| **Android Phone** | [**`CamSync-v1.0.0-Android.apk`**](https://github.com/ramsforge/CamSync/releases/download/v1.0.0/CamSync-v1.0.0-Android.apk) | Release APK with Camera2 multi-lens & hardware H.264 encoder. |
+| **Apple iOS** | [**`CamSync-v1.0.0-iOS-unsigned.ipa`**](https://github.com/ramsforge/CamSync/releases/download/v1.0.0/CamSync-v1.0.0-iOS-unsigned.ipa) / [**`Source.zip`**](https://github.com/ramsforge/CamSync/releases/download/v1.0.0/CamSync-v1.0.0-iOS-Source.zip) | Sideloadable via AltStore / Sideloadly or build via Xcode. |
 
 ---
 
