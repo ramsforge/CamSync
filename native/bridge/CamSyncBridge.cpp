@@ -25,14 +25,7 @@ static bool g_mfInitialized = false;
 CAMSYNC_API int CamSync_Init() {
     if (g_pSharedMem) return 1;
 
-    g_hSharedMem = CreateFileMappingW(
-        INVALID_HANDLE_VALUE,
-        nullptr,
-        PAGE_READWRITE,
-        0,
-        sizeof(CamSyncSharedMemoryLayout),
-        CAMSYNC_SHARED_MEM_NAME
-    );
+    g_hSharedMem = CamSyncCreateFileMapping(0, sizeof(CamSyncSharedMemoryLayout));
 
     if (!g_hSharedMem) return 0;
 
@@ -46,8 +39,8 @@ CAMSYNC_API int CamSync_Init() {
         return 0;
     }
 
-    g_hFrameEvent = CreateEventW(nullptr, FALSE, FALSE, CAMSYNC_FRAME_EVENT_NAME);
-    g_hFrameMutex = CreateMutexW(nullptr, FALSE, CAMSYNC_FRAME_MUTEX_NAME);
+    g_hFrameEvent = CamSyncCreateEvent(FALSE, FALSE);
+    g_hFrameMutex = CamSyncCreateMutex(FALSE);
 
     // Initialize Windows Media Foundation for hardware decoding
     HRESULT hr = MFStartup(MF_VERSION);

@@ -484,14 +484,14 @@ DWORD WINAPI CamSyncOutputPin::ThreadWorkerThunk(LPVOID lpParam) {
 bool CamSyncOutputPin::ConnectSharedMemory() {
     if (m_pSharedMem) return true;
 
-    m_hSharedMem = OpenFileMappingW(FILE_MAP_READ, FALSE, CAMSYNC_SHARED_MEM_NAME);
+    m_hSharedMem = CamSyncOpenFileMapping(FILE_MAP_READ);
     if (m_hSharedMem) {
         m_pSharedMem = reinterpret_cast<CamSyncSharedMemoryLayout*>(
             MapViewOfFile(m_hSharedMem, FILE_MAP_READ, 0, 0, sizeof(CamSyncSharedMemoryLayout)));
     }
 
-    m_hFrameEvent = OpenEventW(SYNCHRONIZE, FALSE, CAMSYNC_FRAME_EVENT_NAME);
-    m_hFrameMutex = OpenMutexW(SYNCHRONIZE, FALSE, CAMSYNC_FRAME_MUTEX_NAME);
+    m_hFrameEvent = CamSyncOpenEvent(SYNCHRONIZE);
+    m_hFrameMutex = CamSyncOpenMutex(SYNCHRONIZE);
     return m_pSharedMem != nullptr;
 }
 

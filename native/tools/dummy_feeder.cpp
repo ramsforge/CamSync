@@ -9,21 +9,18 @@ int main() {
     std::cout << "========================================\n";
     std::cout << "   CamSync Test Pattern Generator\n";
     std::cout << "========================================\n";
-    std::cout << "Creating shared memory: " << CAMSYNC_SHARED_MEM_NAME << "\n";
 
-    HANDLE hSharedMem = CreateFileMappingW(
-        INVALID_HANDLE_VALUE,
-        nullptr,
-        PAGE_READWRITE,
-        0,
-        sizeof(CamSyncSharedMemoryLayout),
-        CAMSYNC_SHARED_MEM_NAME
-    );
+    bool isGlobal = false;
+    HANDLE hSharedMem = CamSyncCreateFileMapping(0, sizeof(CamSyncSharedMemoryLayout), &isGlobal);
 
     if (!hSharedMem) {
         std::cerr << "Failed to create shared memory file mapping! Error: " << GetLastError() << "\n";
         return 1;
     }
+
+    std::wcout << L"Shared memory created in namespace: " 
+               << (isGlobal ? CAMSYNC_SHARED_MEM_NAME_GLOBAL : CAMSYNC_SHARED_MEM_NAME_LOCAL) 
+               << L"\n" << std::flush;
 
     auto* pSharedMem = reinterpret_cast<CamSyncSharedMemoryLayout*>(
         MapViewOfFile(hSharedMem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(CamSyncSharedMemoryLayout))
@@ -35,8 +32,8 @@ int main() {
         return 1;
     }
 
-    HANDLE hFrameEvent = CreateEventW(nullptr, FALSE, FALSE, CAMSYNC_FRAME_EVENT_NAME);
-    HANDLE hFrameMutex = CreateMutexW(nullptr, FALSE, CAMSYNC_FRAME_MUTEX_NAME);
+    HANDLE hFrameEvent = CamSyncCreateEvent(FALSE, FALSE);
+    HANDLE hFrameMutex = CamSyncCreateMutex(FALSE);
 
     const int width = 1920;
     const int height = 1080;
@@ -45,10 +42,9 @@ int main() {
 
     std::cout << "Generating animated 1080p @ 60 FPS test pattern into shared memory...\n";
     std::cout << "Open Windows Camera App, OBS Studio, or Zoom to test 'CamSync Virtual Camera'.\n";
-    std::cout << "Press Ctrl+C to stop.\n\n";
+    std::cout << "Press Ctrl+C to stop.\n\n" << std::flush;
 
     uint64_t frameNumber = 0;
-    int barX = 0;
 
     // Standard SMPTE-like test colors in BGRA format
     const uint32_t colors[8] = {

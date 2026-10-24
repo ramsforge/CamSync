@@ -1,10 +1,16 @@
 #pragma once
 
+#include <windows.h>
+#include <sddl.h>
 #include <cstdint>
 
-#define CAMSYNC_SHARED_MEM_NAME   L"Global\\CamSyncSharedBuffer"
-#define CAMSYNC_FRAME_EVENT_NAME  L"Global\\CamSyncNewFrameEvent"
-#define CAMSYNC_FRAME_MUTEX_NAME  L"Global\\CamSyncFrameMutex"
+#define CAMSYNC_SHARED_MEM_NAME_GLOBAL   L"Global\\CamSyncSharedBuffer"
+#define CAMSYNC_FRAME_EVENT_NAME_GLOBAL  L"Global\\CamSyncNewFrameEvent"
+#define CAMSYNC_FRAME_MUTEX_NAME_GLOBAL  L"Global\\CamSyncFrameMutex"
+
+#define CAMSYNC_SHARED_MEM_NAME_LOCAL    L"Local\\CamSyncSharedBuffer"
+#define CAMSYNC_FRAME_EVENT_NAME_LOCAL   L"Local\\CamSyncNewFrameEvent"
+#define CAMSYNC_FRAME_MUTEX_NAME_LOCAL   L"Local\\CamSyncFrameMutex"
 
 #define CAMSYNC_MAGIC 0x43534E43 // 'CSNC'
 #define CAMSYNC_PROTOCOL_VERSION 1
@@ -45,3 +51,105 @@ struct CamSyncSharedMemoryLayout {
     uint8_t buffer1[CAMSYNC_MAX_FRAME_SIZE];
 };
 #pragma pack(pop)
+
+// --- Helper Functions for Cross-Session & Non-Admin Shared IPC ---
+
+inline SECURITY_ATTRIBUTES* CamSyncGetSecurityAttributes() {
+    static SECURITY_ATTRIBUTES sa;
+    static PSECURITY_DESCRIPTOR pSD = nullptr;
+    static bool initialized = false;
+    if (!initialized) {
+        // SDDL string: Everyone full control (D:(A;;GA;;;WD)), Low Mandatory Integrity level (S:(ML;;NW;;;LW))
+        // This grants permission to standard non-admin users and sandboxed processes (e.g. Chrome/Edge/Zoom).
+        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                L"D:(A;;GA;;;WD)S:(ML;;NW;;;LW)",
+                SDDL_REVISION_1,
+                &pSD,
+                nullptr)) {
+            sa.nLength = sizeof(sa);
+            sa.lpSecurityDescriptor = pSD;
+            sa.bInheritHandle = FALSE;
+            initialized = true;
+            return &sa;
+        }
+        initialized = true;
+    }
+    return (pSD != nullptr) ? &sa : nullptr;
+}
+
+inline HANDLE CamSyncCreateFileMapping(DWORD sizeHigh, DWORD sizeLow, bool* pIsGlobal = nullptr) {
+    SECURITY_ATTRIBUTES* pSA = CamSyncGetSecurityAttributes();
+
+    // 1. Try Global\ namespace first (works when elevated as Administrator)
+    HANDLE hMap = CreateFileMappingW(
+        INVALID_HANDLE_VALUE,
+        pSA,
+        PAGE_READWRITE,
+        sizeHigh,
+        sizeLow,
+        CAMSYNC_SHARED_MEM_NAME_GLOBAL
+    );
+
+    if (hMap != nullptr && GetLastError() != ERROR_ACCESS_DENIED) {
+        if (pIsGlobal) *pIsGlobal = true;
+        return hMap;
+    }
+
+    if (hMap != nullptr) {
+        CloseHandle(hMap);
+    }
+
+    // 2. Fall back to Local\ namespace (works for standard non-admin users)
+    hMap = CreateFileMappingW(
+        INVALID_HANDLE_VALUE,
+        pSA,
+        PAGE_READWRITE,
+        sizeHigh,
+        sizeLow,
+        CAMSYNC_SHARED_MEM_NAME_LOCAL
+    );
+
+    if (pIsGlobal) *pIsGlobal = false;
+    return hMap;
+}
+
+inline HANDLE CamSyncOpenFileMapping(DWORD desiredAccess) {
+    // 1. Try Global namespace first
+    HANDLE hMap = OpenFileMappingW(desiredAccess, FALSE, CAMSYNC_SHARED_MEM_NAME_GLOBAL);
+    if (hMap) return hMap;
+
+    // 2. Try Local namespace
+    return OpenFileMappingW(desiredAccess, FALSE, CAMSYNC_SHARED_MEM_NAME_LOCAL);
+}
+
+inline HANDLE CamSyncCreateEvent(BOOL manualReset, BOOL initialState) {
+    SECURITY_ATTRIBUTES* pSA = CamSyncGetSecurityAttributes();
+    HANDLE hEvent = CreateEventW(pSA, manualReset, initialState, CAMSYNC_FRAME_EVENT_NAME_GLOBAL);
+    if (!hEvent || GetLastError() == ERROR_ACCESS_DENIED) {
+        if (hEvent) CloseHandle(hEvent);
+        hEvent = CreateEventW(pSA, manualReset, initialState, CAMSYNC_FRAME_EVENT_NAME_LOCAL);
+    }
+    return hEvent;
+}
+
+inline HANDLE CamSyncOpenEvent(DWORD desiredAccess) {
+    HANDLE hEvent = OpenEventW(desiredAccess, FALSE, CAMSYNC_FRAME_EVENT_NAME_GLOBAL);
+    if (hEvent) return hEvent;
+    return OpenEventW(desiredAccess, FALSE, CAMSYNC_FRAME_EVENT_NAME_LOCAL);
+}
+
+inline HANDLE CamSyncCreateMutex(BOOL initialOwner) {
+    SECURITY_ATTRIBUTES* pSA = CamSyncGetSecurityAttributes();
+    HANDLE hMutex = CreateMutexW(pSA, initialOwner, CAMSYNC_FRAME_MUTEX_NAME_GLOBAL);
+    if (!hMutex || GetLastError() == ERROR_ACCESS_DENIED) {
+        if (hMutex) CloseHandle(hMutex);
+        hMutex = CreateMutexW(pSA, initialOwner, CAMSYNC_FRAME_MUTEX_NAME_LOCAL);
+    }
+    return hMutex;
+}
+
+inline HANDLE CamSyncOpenMutex(DWORD desiredAccess) {
+    HANDLE hMutex = OpenMutexW(desiredAccess, FALSE, CAMSYNC_FRAME_MUTEX_NAME_GLOBAL);
+    if (hMutex) return hMutex;
+    return OpenMutexW(desiredAccess, FALSE, CAMSYNC_FRAME_MUTEX_NAME_LOCAL);
+}
