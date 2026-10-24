@@ -115,7 +115,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
       frame.bgraBytes,
       frame.width,
       frame.height,
-      ui.PixelFormat.bgra8888,
+      ui.PixelFormat.rgba8888,
       (img) {
         if (mounted) {
           setState(() {

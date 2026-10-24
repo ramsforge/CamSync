@@ -336,9 +336,9 @@ CAMSYNC_API int CamSync_FeedH264Nal(
 
                         for (int x = 0; x < w; x += 2) {
                             int uvIndex = uvRow + x;
-                            // Hardware decoder NV12 chroma plane has V (Cr) at even offset and U (Cb) at odd offset
-                            int V = pNv12[uvIndex];
-                            int U = pNv12[uvIndex + 1];
+                            // Standard NV12: Even byte is U (Cb), odd byte is V (Cr)
+                            int U = pNv12[uvIndex];
+                            int V = pNv12[uvIndex + 1];
 
                             int d = U - 128;
                             int e = V - 128;
@@ -436,10 +436,16 @@ CAMSYNC_API int CamSync_GetLatestFrame(
         uint32_t targetW = w / 2;
         uint32_t targetH = h / 2;
         for (uint32_t y = 0; y < targetH; ++y) {
-            const uint32_t* srcRow = reinterpret_cast<const uint32_t*>(pSrc + (y * 2) * w * 4);
-            uint32_t* dstRow = reinterpret_cast<uint32_t*>(pOutBuffer + y * targetW * 4);
+            const uint8_t* srcRow = pSrc + (y * 2) * w * 4;
+            uint8_t* dstRow = pOutBuffer + y * targetW * 4;
             for (uint32_t x = 0; x < targetW; ++x) {
-                dstRow[x] = srcRow[x * 2];
+                uint32_t srcIdx = (x * 2) * 4;
+                uint32_t dstIdx = x * 4;
+                // Convert BGRA (DirectShow) to RGBA (Flutter UI)
+                dstRow[dstIdx + 0] = srcRow[srcIdx + 2]; // R
+                dstRow[dstIdx + 1] = srcRow[srcIdx + 1]; // G
+                dstRow[dstIdx + 2] = srcRow[srcIdx + 0]; // B
+                dstRow[dstIdx + 3] = srcRow[srcIdx + 3]; // A
             }
         }
         *pWidth = targetW;
@@ -450,7 +456,13 @@ CAMSYNC_API int CamSync_GetLatestFrame(
             ReleaseMutex(g_hFrameMutex);
             return 0;
         }
-        memcpy(pOutBuffer, pSrc, neededSize);
+        // Convert BGRA (DirectShow) to RGBA (Flutter UI)
+        for (uint32_t i = 0; i < neededSize; i += 4) {
+            pOutBuffer[i + 0] = pSrc[i + 2]; // R
+            pOutBuffer[i + 1] = pSrc[i + 1]; // G
+            pOutBuffer[i + 2] = pSrc[i + 0]; // B
+            pOutBuffer[i + 3] = pSrc[i + 3]; // A
+        }
         *pWidth = w;
         *pHeight = h;
     }

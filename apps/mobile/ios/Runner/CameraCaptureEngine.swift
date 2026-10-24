@@ -108,9 +108,9 @@ class CameraCaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             if let connection = output.connection(with: .video) {
                 if connection.isVideoOrientationSupported {
-                    // When requested width >= height, use landscapeRight for standard 16:9 widescreen webcam (no stretching!)
+                    // When requested width >= height, use landscapeLeft for upright 16:9 widescreen webcam (no stretching, upright!)
                     if width >= height {
-                        connection.videoOrientation = .landscapeRight
+                        connection.videoOrientation = .landscapeLeft
                     } else {
                         connection.videoOrientation = .portrait
                     }
