@@ -111,7 +111,7 @@ class HardwareEncoder {
         var rawData = Data(count: totalLength)
         let copyStatus = rawData.withUnsafeMutableBytes { ptr -> OSStatus in
             guard let baseAddress = ptr.baseAddress else { return -1 }
-            return CMBlockBufferCopyDataBytes(dataBuffer, atOffset: 0, byteLength: totalLength, destination: baseAddress)
+            return CMBlockBufferCopyDataBytes(dataBuffer, atOffset: 0, dataLength: totalLength, destination: baseAddress)
         }
         guard copyStatus == noErr else { return }
 
