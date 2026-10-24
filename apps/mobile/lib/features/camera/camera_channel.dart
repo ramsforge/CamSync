@@ -8,6 +8,8 @@ class CameraChannel {
   static const EventChannel _streamEventChannel = EventChannel('com.camsync/video_stream');
 
   Stream<Uint8List>? _videoPacketStream;
+  int? _textureId;
+  int? get textureId => _textureId;
 
   /// Stream of raw H.264 binary packets (with 20-byte CamSync header) emitted by native encoder.
   Stream<Uint8List> get onVideoPacket {
@@ -17,28 +19,35 @@ class CameraChannel {
     return _videoPacketStream!;
   }
 
-  /// Starts native camera capture session and hardware encoder.
-  Future<bool> startCapture({
+  /// Starts native camera capture session and hardware encoder, returning the preview textureId.
+  Future<int?> startCapture({
     required CameraResolution resolution,
     required int fps,
     required CameraLens lens,
   }) async {
     try {
-      final result = await _methodChannel.invokeMethod<bool>('startCapture', {
+      final result = await _methodChannel.invokeMethod<dynamic>('startCapture', {
         'width': resolution.width,
         'height': resolution.height,
         'fps': fps,
         'lens': lens.id,
       });
-      return result ?? false;
+      if (result is Map) {
+        _textureId = (result['textureId'] as num?)?.toInt();
+        return _textureId;
+      } else if (result is bool && result) {
+        return 0;
+      }
+      return null;
     } on PlatformException catch (_) {
-      return false;
+      return null;
     }
   }
 
   /// Stops native camera capture and hardware encoder.
   Future<bool> stopCapture() async {
     try {
+      _textureId = null;
       final result = await _methodChannel.invokeMethod<bool>('stopCapture');
       return result ?? false;
     } on PlatformException catch (_) {

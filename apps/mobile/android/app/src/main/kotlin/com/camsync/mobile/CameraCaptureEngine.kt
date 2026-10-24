@@ -68,6 +68,7 @@ class CameraCaptureEngine(private val context: Context) {
         requestedWidth: Int,
         requestedHeight: Int,
         requestedFps: Int,
+        previewSurfaceTexture: SurfaceTexture?,
         onActualDimensions: (Int, Int, Int) -> Unit,
         onFrame: (ByteArray) -> Unit,
         onStarted: () -> Unit
@@ -133,9 +134,9 @@ class CameraCaptureEngine(private val context: Context) {
                     cam.addCallbackBuffer(ByteArray(bufferSize))
                 }
 
-                dummySurfaceTexture?.release()
-                dummySurfaceTexture = SurfaceTexture(10)
-                cam.setPreviewTexture(dummySurfaceTexture)
+                val st = previewSurfaceTexture ?: SurfaceTexture(10).also { dummySurfaceTexture = it }
+                st.setDefaultBufferSize(chosenSize.width, chosenSize.height)
+                cam.setPreviewTexture(st)
 
                 var frameCount = 0
                 cam.setPreviewCallbackWithBuffer { data, activeCam ->

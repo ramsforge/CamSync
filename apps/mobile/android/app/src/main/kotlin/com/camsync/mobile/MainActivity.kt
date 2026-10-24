@@ -6,6 +6,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.view.TextureRegistry
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -18,6 +19,7 @@ class MainActivity : FlutterActivity() {
     private var captureEngine: CameraCaptureEngine? = null
     private var hardwareEncoder: HardwareEncoder? = null
     private var eventSink: EventChannel.EventSink? = null
+    private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
 
     private var currentLens = "back_wide"
     private var currentWidth = 1920
@@ -126,11 +128,17 @@ class MainActivity : FlutterActivity() {
         currentFps = fps
         currentLens = lens
 
+        val entry = flutterEngine?.renderer?.createSurfaceTexture()
+        textureEntry = entry
+        val surfaceTexture = entry?.surfaceTexture()
+        val textureId = entry?.id() ?: 0L
+
         captureEngine?.startCapture(
             lens = lens,
             requestedWidth = width,
             requestedHeight = height,
             requestedFps = fps,
+            previewSurfaceTexture = surfaceTexture,
             onActualDimensions = { actualWidth, actualHeight, actualFps ->
                 Log.i(TAG, "Creating HardwareEncoder: ${actualWidth}x${actualHeight} @ ${actualFps}fps")
                 hardwareEncoder = HardwareEncoder(
@@ -151,8 +159,8 @@ class MainActivity : FlutterActivity() {
             onStarted = {
                 CamSyncForegroundService.start(applicationContext)
                 runOnUiThread {
-                    Log.i(TAG, "startStreaming success!")
-                    result.success(true)
+                    Log.i(TAG, "startStreaming success! textureId=$textureId")
+                    result.success(mapOf("success" to true, "textureId" to textureId))
                 }
             }
         )
@@ -164,6 +172,10 @@ class MainActivity : FlutterActivity() {
         captureEngine?.stop()
         hardwareEncoder?.stop()
         hardwareEncoder = null
+        try {
+            textureEntry?.release()
+        } catch (_: Exception) {}
+        textureEntry = null
     }
 
     override fun onDestroy() {

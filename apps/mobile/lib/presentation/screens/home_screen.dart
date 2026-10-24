@@ -21,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isStreaming = false;
   bool _oledPowerSave = false;
+  int? _textureId;
   int _clientCount = 0;
   String _localIp = 'Discovering...';
 
@@ -133,26 +134,41 @@ class _HomeScreenState extends State<HomeScreen> {
     if (targetState == _isStreaming) return;
 
     if (targetState) {
-      final success = await _cameraChannel.startCapture(
+      final textureId = await _cameraChannel.startCapture(
         resolution: _selectedResolution,
         fps: _selectedFps,
         lens: _selectedLens,
       );
-      if (success) {
-        setState(() => _isStreaming = true);
+      if (textureId != null) {
+        setState(() {
+          _isStreaming = true;
+          _textureId = textureId;
+        });
       }
     } else {
       await _cameraChannel.stopCapture();
       setState(() {
         _isStreaming = false;
         _torchEnabled = false;
+        _textureId = null;
       });
     }
   }
 
-  void _switchLens(CameraLens lens) {
+  void _switchLens(CameraLens lens) async {
     setState(() => _selectedLens = lens);
-    _cameraChannel.setLens(lens);
+    if (_isStreaming) {
+      final textureId = await _cameraChannel.startCapture(
+        resolution: _selectedResolution,
+        fps: _selectedFps,
+        lens: lens,
+      );
+      if (textureId != null) {
+        setState(() => _textureId = textureId);
+      }
+    } else {
+      _cameraChannel.setLens(lens);
+    }
   }
 
   void _toggleTorch() {
@@ -330,7 +346,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-            // Camera Viewfinder Placeholder / Active Stream Box
+            // Live Camera Viewfinder
             Expanded(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -339,35 +355,79 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.white10),
                 ),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _isStreaming ? Icons.camera_alt : Icons.no_photography_outlined,
-                        size: 64,
-                        color: _isStreaming ? Colors.greenAccent : Colors.white24,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _isStreaming
-                            ? '${_selectedResolution.toString()} @ $_selectedFps FPS'
-                            : 'Press Start to begin streaming',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 16,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: _isStreaming && _textureId != null
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Center(
+                              child: AspectRatio(
+                                aspectRatio: _selectedResolution.width / _selectedResolution.height,
+                                child: Texture(textureId: _textureId!),
+                              ),
+                            ),
+                            Positioned(
+                              top: 12,
+                              left: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.redAccent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    const Text(
+                                      'LIVE PREVIEW',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(
+                                Icons.no_photography_outlined,
+                                size: 64,
+                                color: Colors.white24,
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'Press Start to begin streaming',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Connect Windows PC via Wi-Fi or USB cable',
+                                style: TextStyle(color: Colors.white38, fontSize: 12),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _isStreaming
-                            ? 'Lens: ${_selectedLens.label}'
-                            : 'Connect Windows PC via Wi-Fi or USB cable',
-                        style: const TextStyle(color: Colors.white38, fontSize: 12),
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ),
