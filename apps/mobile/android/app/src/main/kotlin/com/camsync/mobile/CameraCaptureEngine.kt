@@ -1,30 +1,26 @@
 package com.camsync.mobile
 
-import android.annotation.SuppressLint
 import android.content.Context
-import android.hardware.camera2.*
+import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
+import android.hardware.Camera
 import android.os.Handler
 import android.os.HandlerThread
-import android.view.Surface
-import java.util.concurrent.Semaphore
-import java.util.concurrent.TimeUnit
+import android.util.Log
 
+@Suppress("DEPRECATION")
 class CameraCaptureEngine(private val context: Context) {
-    private val cameraManager: CameraManager =
-        context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    companion object {
+        private const val TAG = "CamSyncCamera"
+    }
 
-    private var cameraDevice: CameraDevice? = null
-    private var captureSession: CameraCaptureSession? = null
-    private var previewRequestBuilder: CaptureRequest.Builder? = null
+    private var camera: Camera? = null
+    private var dummySurfaceTexture: SurfaceTexture? = null
+    private var isStreaming = false
+    private var currentCameraId = 0
 
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
-
-    private val cameraOpenCloseLock = Semaphore(1)
-
-    private var currentCameraId: String = "0"
-    private var currentTorch = false
-    private var currentZoom = 1.0f
 
     init {
         startBackgroundThread()
@@ -44,167 +40,232 @@ class CameraCaptureEngine(private val context: Context) {
         } catch (_: InterruptedException) {}
     }
 
-    private fun selectCameraId(lens: String): String {
-        val ids = cameraManager.cameraIdList
-        for (id in ids) {
-            val chars = cameraManager.getCameraCharacteristics(id)
-            val facing = chars.get(CameraCharacteristics.LENS_FACING)
+    fun selectCameraId(lens: String): Int {
+        val count = Camera.getNumberOfCameras()
+        val info = Camera.CameraInfo()
+        var backId = -1
+        var frontId = -1
 
-            if (lens == "front" && facing == CameraCharacteristics.LENS_FACING_FRONT) {
-                return id
+        for (i in 0 until count) {
+            Camera.getCameraInfo(i, info)
+            if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT && frontId == -1) {
+                frontId = i
             }
-            if (lens.startsWith("back") && facing == CameraCharacteristics.LENS_FACING_BACK) {
-                // Check for ultra-wide lens (focal length < 2.5mm or wide FOV)
-                if (lens == "back_ultra_wide") {
-                    val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
-                    if (focalLengths != null && focalLengths.isNotEmpty() && focalLengths[0] < 2.5f) {
-                        return id
-                    }
-                } else if (lens == "back_wide") {
-                    return id
-                }
+            if (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK && backId == -1) {
+                backId = i
             }
         }
-        return ids.firstOrNull() ?: "0"
-    }
 
-    @SuppressLint("MissingPermission")
-    fun startCapture(encoderSurface: Surface, lens: String, onStarted: () -> Unit) {
-        if (!cameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
-            return
+        return if (lens == "front") {
+            if (frontId != -1) frontId else 0
+        } else {
+            if (backId != -1) backId else 0
         }
-
-        currentCameraId = selectCameraId(lens)
-
-        cameraManager.openCamera(currentCameraId, object : CameraDevice.StateCallback() {
-            override fun onOpened(camera: CameraDevice) {
-                cameraOpenCloseLock.release()
-                cameraDevice = camera
-                createCaptureSession(camera, encoderSurface, onStarted)
-            }
-
-            override fun onDisconnected(camera: CameraDevice) {
-                cameraOpenCloseLock.release()
-                camera.close()
-                cameraDevice = null
-            }
-
-            override fun onError(camera: CameraDevice, error: Int) {
-                cameraOpenCloseLock.release()
-                camera.close()
-                cameraDevice = null
-            }
-        }, backgroundHandler)
     }
 
-    private fun createCaptureSession(
-        camera: CameraDevice,
-        encoderSurface: Surface,
+    fun startCapture(
+        lens: String,
+        requestedWidth: Int,
+        requestedHeight: Int,
+        requestedFps: Int,
+        onActualDimensions: (Int, Int, Int) -> Unit,
+        onFrame: (ByteArray) -> Unit,
         onStarted: () -> Unit
     ) {
-        try {
-            previewRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                addTarget(encoderSurface)
-                set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-            }
+        stop()
 
-            camera.createCaptureSession(
-                listOf(encoderSurface),
-                object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(session: CameraCaptureSession) {
-                        captureSession = session
+        backgroundHandler?.post {
+            currentCameraId = selectCameraId(lens)
+            Log.i(TAG, "Opening Camera 1 for ID: $currentCameraId ($lens)...")
+
+            try {
+                val cam = Camera.open(currentCameraId)
+                camera = cam
+                val params = cam.parameters
+
+                // Pick closest supported preview size
+                val supportedSizes = params.supportedPreviewSizes ?: listOf()
+                var chosenSize = supportedSizes.firstOrNull() ?: cam.Size(1280, 720)
+                var minDiff = Int.MAX_VALUE
+
+                for (size in supportedSizes) {
+                    val diff = Math.abs(size.width - requestedWidth) + Math.abs(size.height - requestedHeight)
+                    if (diff < minDiff) {
+                        minDiff = diff
+                        chosenSize = size
+                    }
+                }
+                Log.i(TAG, "Chosen preview size: ${chosenSize.width}x${chosenSize.height}")
+                params.setPreviewSize(chosenSize.width, chosenSize.height)
+
+                // Pick FPS range
+                val supportedFpsRanges = params.supportedPreviewFpsRange ?: listOf()
+                var chosenFpsRange = supportedFpsRanges.firstOrNull() ?: intArrayOf(15000, 30000)
+                val targetFps = requestedFps * 1000
+
+                for (range in supportedFpsRanges) {
+                    if (range[1] <= targetFps && range[1] >= chosenFpsRange[1]) {
+                        chosenFpsRange = range
+                    }
+                }
+                val actualFps = chosenFpsRange[1] / 1000
+                Log.i(TAG, "Chosen FPS range: [${chosenFpsRange[0]}, ${chosenFpsRange[1]}] (max: $actualFps)")
+                params.setPreviewFpsRange(chosenFpsRange[0], chosenFpsRange[1])
+
+                // Focus mode
+                val focusModes = params.supportedFocusModes ?: listOf()
+                if (focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)) {
+                    params.focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO
+                } else if (focusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+                    params.focusMode = Camera.Parameters.FOCUS_MODE_AUTO
+                }
+
+                params.setRecordingHint(true)
+                params.previewFormat = ImageFormat.NV21
+                cam.parameters = params
+
+                // Notify actual dimensions so encoder is configured
+                onActualDimensions(chosenSize.width, chosenSize.height, actualFps)
+
+                // Allocate 3 buffers for smooth pipeline
+                val bufferSize = chosenSize.width * chosenSize.height * 3 / 2
+                for (i in 0 until 3) {
+                    cam.addCallbackBuffer(ByteArray(bufferSize))
+                }
+
+                dummySurfaceTexture?.release()
+                dummySurfaceTexture = SurfaceTexture(10)
+                cam.setPreviewTexture(dummySurfaceTexture)
+
+                var frameCount = 0
+                cam.setPreviewCallbackWithBuffer { data, activeCam ->
+                    if (data != null && isStreaming) {
+                        frameCount++
+                        if (frameCount % 60 == 0 || frameCount <= 5) {
+                            Log.d(TAG, "Camera 1 frame #$frameCount captured (${data.size} bytes)")
+                        }
+                        onFrame(data)
                         try {
-                            previewRequestBuilder?.let {
-                                session.setRepeatingRequest(it.build(), null, backgroundHandler)
-                            }
-                            onStarted()
+                            activeCam.addCallbackBuffer(data)
                         } catch (_: Exception) {}
                     }
+                }
 
-                    override fun onConfigureFailed(session: CameraCaptureSession) {}
-                },
-                backgroundHandler
-            )
-        } catch (_: Exception) {}
+                cam.startPreview()
+                isStreaming = true
+                Log.i(TAG, "Camera 1 preview started successfully!")
+                onStarted()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start Camera 1: ${e.message}", e)
+            }
+        }
     }
 
     fun setTorch(enabled: Boolean) {
-        currentTorch = enabled
-        previewRequestBuilder?.let { builder ->
-            builder.set(
-                CaptureRequest.FLASH_MODE,
-                if (enabled) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF
-            )
-            updateRepeating()
+        backgroundHandler?.post {
+            val cam = camera ?: return@post
+            try {
+                val params = cam.parameters
+                val modes = params.supportedFlashModes ?: return@post
+                if (enabled && modes.contains(Camera.Parameters.FLASH_MODE_TORCH)) {
+                    params.flashMode = Camera.Parameters.FLASH_MODE_TORCH
+                } else if (modes.contains(Camera.Parameters.FLASH_MODE_OFF)) {
+                    params.flashMode = Camera.Parameters.FLASH_MODE_OFF
+                }
+                cam.parameters = params
+            } catch (e: Exception) {
+                Log.w(TAG, "setTorch error: ${e.message}")
+            }
         }
     }
 
     fun setZoom(zoom: Float) {
-        currentZoom = zoom
-        previewRequestBuilder?.let { builder ->
+        backgroundHandler?.post {
+            val cam = camera ?: return@post
             try {
-                builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoom)
-                updateRepeating()
+                val params = cam.parameters
+                if (params.isZoomSupported) {
+                    val maxZoom = params.maxZoom
+                    val targetZoom = ((zoom - 1.0f) * (maxZoom / 4.0f)).toInt().coerceIn(0, maxZoom)
+                    params.zoom = targetZoom
+                    cam.parameters = params
+                }
             } catch (_: Exception) {}
         }
     }
 
     fun setFocus(mode: String, distance: Float) {
-        previewRequestBuilder?.let { builder ->
-            if (mode == "manual") {
-                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-                builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, distance * 10.0f) // Diopters
-            } else {
-                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-            }
-            updateRepeating()
+        backgroundHandler?.post {
+            val cam = camera ?: return@post
+            try {
+                val params = cam.parameters
+                val modes = params.supportedFocusModes ?: return@post
+                if (mode == "manual" && modes.contains(Camera.Parameters.FOCUS_MODE_FIXED)) {
+                    params.focusMode = Camera.Parameters.FOCUS_MODE_FIXED
+                } else if (modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)) {
+                    params.focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO
+                }
+                cam.parameters = params
+            } catch (_: Exception) {}
         }
     }
 
     fun setExposure(mode: String, iso: Int?, shutterSpeedMs: Double?) {
-        previewRequestBuilder?.let { builder ->
-            if (mode == "manual" && iso != null && shutterSpeedMs != null) {
-                builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
-                builder.set(CaptureRequest.SENSOR_SENSITIVITY, iso)
-                builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, (shutterSpeedMs * 1_000_000).toLong())
-            } else {
-                builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-            }
-            updateRepeating()
+        backgroundHandler?.post {
+            val cam = camera ?: return@post
+            try {
+                val params = cam.parameters
+                val minExp = params.minExposureCompensation
+                val maxExp = params.maxExposureCompensation
+                if (minExp != 0 || maxExp != 0) {
+                    if (iso != null) {
+                        val comp = ((iso - 400) / 100).coerceIn(minExp, maxExp)
+                        params.exposureCompensation = comp
+                        cam.parameters = params
+                    }
+                }
+            } catch (_: Exception) {}
         }
     }
 
     fun setWhiteBalance(mode: String) {
-        previewRequestBuilder?.let { builder ->
-            builder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-            updateRepeating()
+        backgroundHandler?.post {
+            val cam = camera ?: return@post
+            try {
+                val params = cam.parameters
+                val wb = when (mode) {
+                    "daylight" -> Camera.Parameters.WHITE_BALANCE_DAYLIGHT
+                    "cloudy" -> Camera.Parameters.WHITE_BALANCE_CLOUDY_DAYLIGHT
+                    "fluorescent" -> Camera.Parameters.WHITE_BALANCE_FLUORESCENT
+                    "incandescent" -> Camera.Parameters.WHITE_BALANCE_INCANDESCENT
+                    else -> Camera.Parameters.WHITE_BALANCE_AUTO
+                }
+                if (params.supportedWhiteBalance?.contains(wb) == true) {
+                    params.whiteBalance = wb
+                    cam.parameters = params
+                }
+            } catch (_: Exception) {}
         }
-    }
-
-    private fun updateRepeating() {
-        try {
-            val session = captureSession ?: return
-            val builder = previewRequestBuilder ?: return
-            session.setRepeatingRequest(builder.build(), null, backgroundHandler)
-        } catch (_: Exception) {}
     }
 
     fun stop() {
-        try {
-            cameraOpenCloseLock.acquire()
-            captureSession?.stopRepeating()
-            captureSession?.close()
-            captureSession = null
+        val cam = camera
+        camera = null
+        isStreaming = false
 
-            cameraDevice?.close()
-            cameraDevice = null
-        } catch (_: Exception) {
-        } finally {
-            cameraOpenCloseLock.release()
+        if (cam != null) {
+            try {
+                cam.setPreviewCallbackWithBuffer(null)
+                cam.stopPreview()
+                cam.release()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error stopping camera: ${e.message}")
+            }
         }
-        stopBackgroundThread()
+
+        try {
+            dummySurfaceTexture?.release()
+            dummySurfaceTexture = null
+        } catch (_: Exception) {}
     }
 }

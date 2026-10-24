@@ -75,15 +75,24 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
     });
   }
 
-  void _connectUsb() {
-    _streamClient.connect('127.0.0.1');
+  Future<void> _connectUsb() async {
+    final success = await _streamClient.connect('127.0.0.1');
+    if (success) {
+      _streamClient.sendParameters(_params);
+      _streamClient.requestStream(true);
+    }
   }
 
-  void _connectWifi() {
-    _streamClient.connect(_ipController.text.trim());
+  Future<void> _connectWifi() async {
+    final success = await _streamClient.connect(_ipController.text.trim());
+    if (success) {
+      _streamClient.sendParameters(_params);
+      _streamClient.requestStream(true);
+    }
   }
 
   void _disconnect() {
+    _streamClient.requestStream(false);
     _streamClient.disconnect();
   }
 
