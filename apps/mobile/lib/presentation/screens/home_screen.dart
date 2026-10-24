@@ -241,8 +241,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final theme = Theme.of(context);
-
     return Scaffold(
       backgroundColor: const Color(0xFF101216),
       appBar: AppBar(
@@ -327,7 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'IP: $_localIp:8282  |  Clients: $_clientCount',
+                        'Wi-Fi IP: $_localIp  (Port: 8282)  |  Clients: $_clientCount',
                         style: const TextStyle(color: Colors.white60, fontSize: 12),
                       ),
                     ],
@@ -375,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
-                  child: _isStreaming && _textureId != null
+                  child: _isStreaming && _textureId != null && _textureId! >= 0
                       ? Stack(
                           fit: StackFit.expand,
                           children: [

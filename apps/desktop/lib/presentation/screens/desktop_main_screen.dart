@@ -140,11 +140,33 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   }
 
   Future<void> _connectWifi() async {
+    final input = _ipController.text.trim();
+    if (input.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter the Wi-Fi IP address shown on your phone.'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+      }
+      return;
+    }
+
     _native.setVideoFormat(_params.resolution.width, _params.resolution.height);
-    final success = await _streamClient.connect(_ipController.text.trim());
+    final success = await _streamClient.connect(input);
     if (success) {
       _streamClient.sendParameters(_params);
       _streamClient.requestStream(true);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to connect to $input. Verify the IP and ensure streaming is started on your phone.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
   }
 

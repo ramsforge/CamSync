@@ -6,14 +6,14 @@ class HardwareEncoder {
     private var compressionSession: VTCompressionSession?
     private var isEncoding = false
     private var sequenceNumber: UInt32 = 0
-    private var startTimeMs: UInt32 = 0
+    private var startNanoTime: UInt64 = 0
     private let onPacketEncoded: (Data) -> Void
 
     private let magic: UInt32 = 0x43534E43 // 'CSNC'
     private let protocolVersion: UInt8 = 1
     private let headerSize = 20
 
-    init(width: Int32, height: Int32, fps: Int32 = 60, onPacketEncoded: @escaping (Data) -> Void) {
+    init(width: Int32, height: Int32, fps: Int32 = 30, onPacketEncoded: @escaping (Data) -> Void) {
         self.onPacketEncoded = onPacketEncoded
 
         let status = VTCompressionSessionCreate(
@@ -22,7 +22,11 @@ class HardwareEncoder {
             height: height,
             codecType: kCMVideoCodecType_H264,
             encoderSpecification: nil,
-            imageBufferAttributes: nil,
+            imageBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height
+            ] as CFDictionary,
             compressedDataAllocator: nil,
             outputCallback: compressionOutputCallback,
             refcon: Unmanaged.passUnretained(self).toOpaque(),
@@ -30,15 +34,18 @@ class HardwareEncoder {
         )
 
         if status == noErr, let session = compressionSession {
+            // Low-latency configuration
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
-            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_AutoLevel)
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Baseline_AutoLevel)
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: NSNumber(value: fps))
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: fps))
-            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 15_000_000))
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 4_000_000))
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
             VTCompressionSessionPrepareToEncodeFrames(session)
             isEncoding = true
-            startTimeMs = UInt32(Date().timeIntervalSince1970 * 1000)
+            startNanoTime = DispatchTime.now().uptimeNanoseconds
+        } else {
+            print("[HardwareEncoder] Failed to create VTCompressionSession: \(status)")
         }
     }
 
@@ -58,6 +65,7 @@ class HardwareEncoder {
     func stop() {
         isEncoding = false
         if let session = compressionSession {
+            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
             VTCompressionSessionInvalidate(session)
             compressionSession = nil
         }
@@ -66,65 +74,98 @@ class HardwareEncoder {
     fileprivate func handleEncodedSample(sampleBuffer: CMSampleBuffer) {
         guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
 
-        // Check for Keyframe
-        let isKeyframe = !CFDictionaryContainsKey(
-            unsafeBitCast(CFArrayGetValueAtIndex(CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false), 0), to: CFDictionary.self),
-            unsafeBitCast(kCMSampleAttachmentKey_NotSync, to: UnsafeRawPointer.self)
-        )
+        // Check for Keyframe safely without force casts
+        var isKeyframe = false
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]],
+           let first = attachments.first {
+            let notSync = (first[kCMSampleAttachmentKey_NotSync] as? Bool) ?? false
+            isKeyframe = !notSync
+        } else if sequenceNumber == 0 {
+            isKeyframe = true
+        }
 
-        // If keyframe, send SPS and PPS config first
+        // If keyframe, emit SPS and PPS parameter sets first (Type 1: Config)
         if isKeyframe {
             var spsSize: Int = 0
             var spsCount: Int = 0
             var spsPointer: UnsafePointer<UInt8>?
 
             if CMVideoFormatDescriptionGetH264ParameterSetAtIndex(formatDesc, parameterSetIndex: 0, parameterSetPointerOut: &spsPointer, parameterSetSizeOut: &spsSize, parameterSetCountOut: &spsCount, nalUnitHeaderLengthOut: nil) == noErr,
-               let sps = spsPointer {
+               let sps = spsPointer, spsSize > 0 {
                 emitPacket(type: 1, payload: Data(bytes: sps, count: spsSize))
             }
 
             var ppsSize: Int = 0
             var ppsPointer: UnsafePointer<UInt8>?
             if CMVideoFormatDescriptionGetH264ParameterSetAtIndex(formatDesc, parameterSetIndex: 1, parameterSetPointerOut: &ppsPointer, parameterSetSizeOut: &ppsSize, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr,
-               let pps = ppsPointer {
+               let pps = ppsPointer, ppsSize > 0 {
                 emitPacket(type: 1, payload: Data(bytes: pps, count: ppsSize))
             }
         }
 
-        // Send NAL units in data buffer
+        // Get video data buffer
         guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
-        var lengthAtOffset: Int = 0
+
+        // Ensure contiguous memory buffer
+        var contiguousBuffer: CMBlockBuffer?
+        if !CMBlockBufferIsContiguous(dataBuffer) {
+            let status = CMBlockBufferCreateContiguous(
+                allocator: kCFAllocatorDefault,
+                sourceBuffer: dataBuffer,
+                blockAllocator: kCFAllocatorDefault,
+                customBlockSource: nil,
+                offsetToData: 0,
+                dataLength: 0,
+                flags: 0,
+                blockBufferOut: &contiguousBuffer
+            )
+            guard status == noErr, let cont = contiguousBuffer else { return }
+        }
+        let targetBuffer = contiguousBuffer ?? dataBuffer
+
         var totalLength: Int = 0
         var dataPointer: UnsafeMutablePointer<Int8>?
+        guard CMBlockBufferGetDataPointer(targetBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &totalLength, dataPointerOut: &dataPointer) == noErr,
+              let dataPtr = dataPointer else { return }
 
-        if CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: &lengthAtOffset, totalLengthOut: &totalLength, dataPointerOut: &dataPointer) == noErr,
-           let dataPtr = dataPointer {
-            var bufferOffset = 0
-            let avcHeaderLength = 4
+        var bufferOffset = 0
+        let avcHeaderLength = 4
 
-            while bufferOffset < totalLength - avcHeaderLength {
-                var nalUnitLength: UInt32 = 0
-                memcpy(&nalUnitLength, dataPtr + bufferOffset, avcHeaderLength)
-                nalUnitLength = CFSwapInt32BigToHost(nalUnitLength)
+        while bufferOffset + avcHeaderLength <= totalLength {
+            var nalUnitLength: UInt32 = 0
+            memcpy(&nalUnitLength, dataPtr + bufferOffset, avcHeaderLength)
+            nalUnitLength = CFSwapInt32BigToHost(nalUnitLength)
 
-                let nalData = Data(bytes: dataPtr + bufferOffset + avcHeaderLength, count: Int(nalUnitLength))
-                emitPacket(type: isKeyframe ? 2 : 3, payload: nalData)
-
-                bufferOffset += avcHeaderLength + Int(nalUnitLength)
+            let nalLen = Int(nalUnitLength)
+            if nalLen <= 0 || bufferOffset + avcHeaderLength + nalLen > totalLength {
+                break
             }
+
+            let nalData = Data(bytes: dataPtr + bufferOffset + avcHeaderLength, count: nalLen)
+            // Type 2: Keyframe, Type 3: P-frame
+            emitPacket(type: isKeyframe ? 2 : 3, payload: nalData)
+
+            bufferOffset += avcHeaderLength + nalLen
         }
     }
 
     private func emitPacket(type: UInt8, payload: Data) {
         var header = Data(count: headerSize)
+        let elapsedMs: UInt32
+        if startNanoTime > 0 {
+            let diffNano = DispatchTime.now().uptimeNanoseconds - startNanoTime
+            elapsedMs = UInt32(diffNano / 1_000_000)
+        } else {
+            elapsedMs = 0
+        }
+
         header.withUnsafeMutableBytes { ptr in
             ptr.storeBytes(of: magic.bigEndian, toByteOffset: 0, as: UInt32.self)
             ptr.storeBytes(of: protocolVersion, toByteOffset: 4, as: UInt8.self)
             ptr.storeBytes(of: type, toByteOffset: 5, as: UInt8.self)
             ptr.storeBytes(of: UInt16(0).bigEndian, toByteOffset: 6, as: UInt16.self)
             ptr.storeBytes(of: sequenceNumber.bigEndian, toByteOffset: 8, as: UInt32.self)
-            let elapsed = UInt32(Date().timeIntervalSince1970 * 1000) - startTimeMs
-            ptr.storeBytes(of: elapsed.bigEndian, toByteOffset: 12, as: UInt32.self)
+            ptr.storeBytes(of: elapsedMs.bigEndian, toByteOffset: 12, as: UInt32.self)
             ptr.storeBytes(of: UInt32(payload.count).bigEndian, toByteOffset: 16, as: UInt32.self)
         }
         sequenceNumber &+= 1

@@ -45,17 +45,41 @@ class StreamClient {
     _native.init();
   }
 
-  Future<bool> connect(String host) async {
+  Future<bool> connect(String rawHost, {int? customVideoPort, int? customControlPort}) async {
     await disconnect();
     _setState(CamSyncConnectionState.connecting);
 
+    var sanitized = rawHost.trim();
+    if (sanitized.startsWith('http://')) sanitized = sanitized.substring(7);
+    if (sanitized.startsWith('https://')) sanitized = sanitized.substring(8);
+    if (sanitized.endsWith('/')) sanitized = sanitized.substring(0, sanitized.length - 1);
+
+    String host = sanitized;
+    int videoPort = customVideoPort ?? CamSyncConstants.defaultVideoPort;
+    int controlPort = customControlPort ?? CamSyncConstants.defaultControlPort;
+
+    // Handle host:port syntax (e.g. 172.20.10.1:8282)
+    if (sanitized.contains(':') && !sanitized.contains('[')) {
+      final parts = sanitized.split(':');
+      if (parts.length == 2) {
+        host = parts[0].trim();
+        final parsedPort = int.tryParse(parts[1].trim());
+        if (parsedPort != null && parsedPort > 0) {
+          videoPort = parsedPort;
+          if (customControlPort == null) {
+            controlPort = videoPort + 1;
+          }
+        }
+      }
+    }
+
     try {
       // Connect Video Socket (TCP 8282)
-      _videoSocket = await Socket.connect(host, CamSyncConstants.defaultVideoPort, timeout: const Duration(seconds: 4));
+      _videoSocket = await Socket.connect(host, videoPort, timeout: const Duration(seconds: 4));
       _videoSocket?.setOption(SocketOption.tcpNoDelay, true);
 
       // Connect Control Socket (TCP 8283)
-      _controlSocket = await Socket.connect(host, CamSyncConstants.defaultControlPort, timeout: const Duration(seconds: 4));
+      _controlSocket = await Socket.connect(host, controlPort, timeout: const Duration(seconds: 4));
       _controlSocket?.setOption(SocketOption.tcpNoDelay, true);
 
       _setupVideoListener();

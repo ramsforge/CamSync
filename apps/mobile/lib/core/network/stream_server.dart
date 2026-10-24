@@ -47,20 +47,6 @@ class MobileStreamServer {
     _controlServer?.listen(_onControlClientConnected);
   }
 
-  void _onVideoClientConnected(Socket socket) {
-    socket.setOption(SocketOption.tcpNoDelay, true);
-    _videoClients.add(socket);
-    _clientCountController.add(_videoClients.length);
-
-    socket.done.then((_) {
-      _videoClients.remove(socket);
-      _clientCountController.add(_videoClients.length);
-    }).catchError((_) {
-      _videoClients.remove(socket);
-      _clientCountController.add(_videoClients.length);
-    });
-  }
-
   void _onControlClientConnected(Socket socket) {
     socket.setOption(SocketOption.tcpNoDelay, true);
     _controlClients.add(socket);
