@@ -25,7 +25,21 @@ class StreamClient {
   Stream<DeviceTelemetry> get onTelemetry => _telemetryController.stream;
 
   int _rpcId = 1;
-  String _targetHost = '127.0.0.1';
+
+  int _bytesSinceLastTick = 0;
+  int _framesSinceLastTick = 0;
+  double _measuredFps = 0.0;
+  int _measuredBitrateKbps = 0;
+  Timer? _metricsTimer;
+
+  DeviceTelemetry _lastDeviceTelemetry = const DeviceTelemetry(
+    batteryLevel: 100,
+    isCharging: false,
+    thermalState: 'nominal',
+    temperatureC: 25.0,
+    encoderBitrateKbps: 0,
+    currentFps: 0,
+  );
 
   StreamClient() {
     _native.init();
@@ -33,7 +47,6 @@ class StreamClient {
 
   Future<bool> connect(String host) async {
     await disconnect();
-    _targetHost = host;
     _setState(CamSyncConnectionState.connecting);
 
     try {
@@ -47,6 +60,7 @@ class StreamClient {
 
       _setupVideoListener();
       _setupControlListener();
+      _startMetricsTimer();
 
       _setState(CamSyncConnectionState.connected);
       return true;
@@ -57,9 +71,40 @@ class StreamClient {
     }
   }
 
+  void _startMetricsTimer() {
+    _metricsTimer?.cancel();
+    _bytesSinceLastTick = 0;
+    _framesSinceLastTick = 0;
+    _measuredFps = 0.0;
+    _measuredBitrateKbps = 0;
+
+    _metricsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _measuredFps = _framesSinceLastTick.toDouble();
+      _measuredBitrateKbps = (_bytesSinceLastTick * 8) ~/ 1000;
+      _bytesSinceLastTick = 0;
+      _framesSinceLastTick = 0;
+
+      final effectiveFps = _measuredFps > 0 ? _measuredFps : _lastDeviceTelemetry.currentFps;
+      final effectiveBitrate = _measuredBitrateKbps > 0 ? _measuredBitrateKbps : _lastDeviceTelemetry.encoderBitrateKbps;
+
+      final telemetry = DeviceTelemetry(
+        batteryLevel: _lastDeviceTelemetry.batteryLevel,
+        isCharging: _lastDeviceTelemetry.isCharging,
+        thermalState: _lastDeviceTelemetry.thermalState,
+        temperatureC: _lastDeviceTelemetry.temperatureC,
+        encoderBitrateKbps: effectiveBitrate,
+        currentFps: effectiveFps,
+      );
+
+      _telemetryController.add(telemetry);
+    });
+  }
+
   void _setupVideoListener() {
     _videoSocket?.listen((chunk) {
+      _bytesSinceLastTick += chunk.length;
       final packets = _decoder.addChunk(chunk);
+      _framesSinceLastTick += packets.length;
       for (final p in packets) {
         _native.feedNal(
           nalBytes: p.payload,
@@ -90,8 +135,10 @@ class StreamClient {
           try {
             final msg = ControlRpcMessage.parseLine(line);
             if (msg.method == 'device.telemetry' && msg.params != null) {
-              final telemetry = DeviceTelemetry.fromJson(msg.params!);
-              _telemetryController.add(telemetry);
+              _lastDeviceTelemetry = DeviceTelemetry.fromJson(msg.params!);
+              if (_measuredFps == 0.0) {
+                _telemetryController.add(_lastDeviceTelemetry);
+              }
             }
           } catch (_) {}
         }
@@ -129,6 +176,13 @@ class StreamClient {
   }
 
   Future<void> disconnect() async {
+    _metricsTimer?.cancel();
+    _metricsTimer = null;
+    _bytesSinceLastTick = 0;
+    _framesSinceLastTick = 0;
+    _measuredFps = 0.0;
+    _measuredBitrateKbps = 0;
+
     _videoSocket?.destroy();
     _videoSocket = null;
 
@@ -137,6 +191,16 @@ class StreamClient {
 
     _decoder.reset();
     _setState(CamSyncConnectionState.disconnected);
+
+    _lastDeviceTelemetry = const DeviceTelemetry(
+      batteryLevel: 100,
+      isCharging: false,
+      thermalState: 'nominal',
+      temperatureC: 25.0,
+      encoderBitrateKbps: 0,
+      currentFps: 0,
+    );
+    _telemetryController.add(_lastDeviceTelemetry);
   }
 
   void dispose() {

@@ -88,7 +88,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
 
   void _startPreviewLoop() {
     _previewTimer?.cancel();
-    _previewTimer = Timer.periodic(const Duration(milliseconds: 33), (_) => _pollPreviewFrame());
+    _previewTimer = Timer.periodic(const Duration(milliseconds: 16), (_) => _pollPreviewFrame());
   }
 
   void _stopPreviewLoop() {
@@ -131,6 +131,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   }
 
   Future<void> _connectUsb() async {
+    _native.setVideoFormat(_params.resolution.width, _params.resolution.height);
     final success = await _streamClient.connect('127.0.0.1');
     if (success) {
       _streamClient.sendParameters(_params);
@@ -139,6 +140,7 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   }
 
   Future<void> _connectWifi() async {
+    _native.setVideoFormat(_params.resolution.width, _params.resolution.height);
     final success = await _streamClient.connect(_ipController.text.trim());
     if (success) {
       _streamClient.sendParameters(_params);
@@ -153,6 +155,9 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
   }
 
   void _updateParams(CameraParameters newParams) {
+    if (newParams.resolution != _params.resolution) {
+      _native.setVideoFormat(newParams.resolution.width, newParams.resolution.height);
+    }
     setState(() => _params = newParams);
     _streamClient.sendParameters(newParams);
   }
@@ -422,7 +427,11 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.fiber_manual_record, color: Colors.redAccent, size: 12),
+                    Icon(
+                      Icons.fiber_manual_record,
+                      color: _telemetry.currentFps > 0 ? Colors.greenAccent : Colors.redAccent,
+                      size: 12,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       '${_telemetry.currentFps.toStringAsFixed(0)} FPS',
@@ -430,12 +439,16 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      '${(_telemetry.encoderBitrateKbps / 1000).toStringAsFixed(1)} Mbps',
+                      _telemetry.encoderBitrateKbps >= 1000
+                          ? '${(_telemetry.encoderBitrateKbps / 1000).toStringAsFixed(1)} Mbps'
+                          : '${_telemetry.encoderBitrateKbps} Kbps',
                       style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 13),
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      '${_params.resolution.width}x${_params.resolution.height}',
+                      _previewImage != null
+                          ? '${_previewImage!.width}x${_previewImage!.height}'
+                          : '${_params.resolution.width}x${_params.resolution.height}',
                       style: const TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                   ],
@@ -470,7 +483,18 @@ class _DesktopMainScreenState extends State<DesktopMainScreen> {
               ButtonSegment(value: CameraLens.front, label: Text('Selfie')),
             ],
             selected: {_params.lens},
-            onSelectionChanged: (set) => _updateParams(_params.copyWith(lens: set.first)),
+            onSelectionChanged: (set) {
+              final newLens = set.first;
+              double newZoom = _params.zoom;
+              if (newLens == CameraLens.backTelephoto && newZoom < 3.0) {
+                newZoom = 3.0;
+              } else if (newLens == CameraLens.backWide && newZoom >= 3.0) {
+                newZoom = 1.0;
+              } else if (newLens == CameraLens.backUltraWide && newZoom > 1.0) {
+                newZoom = 1.0;
+              }
+              _updateParams(_params.copyWith(lens: newLens, zoom: newZoom));
+            },
           ),
           const SizedBox(height: 20),
 

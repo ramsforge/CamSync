@@ -17,6 +17,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+  // Ensure current working directory is always the executable's directory so data/ is found
+  wchar_t exePath[MAX_PATH];
+  if (::GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (lastSlash) {
+      *lastSlash = L'\0';
+      ::SetCurrentDirectoryW(exePath);
+    }
+  }
+
   flutter::DartProject project(L"data");
 
   std::vector<std::string> command_line_arguments =

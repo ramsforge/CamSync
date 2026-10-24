@@ -19,6 +19,7 @@ typedef _c_feed_nal = Int32 Function(
   Uint64 timestampMs,
 );
 typedef _c_is_active = Int32 Function();
+typedef _c_set_format = Int32 Function(Uint32 width, Uint32 height);
 typedef _c_get_latest_frame = Int32 Function(
   Pointer<Uint8> pOutBuffer,
   Uint32 bufferSize,
@@ -44,6 +45,7 @@ typedef _d_feed_nal = int Function(
   int timestampMs,
 );
 typedef _d_is_active = int Function();
+typedef _d_set_format = int Function(int width, int height);
 typedef _d_get_latest_frame = int Function(
   Pointer<Uint8> pOutBuffer,
   int bufferSize,
@@ -75,6 +77,7 @@ class CamSyncNative {
   late final _d_write_frame _writeFrame;
   late final _d_feed_nal _feedNal;
   late final _d_is_active _isActive;
+  late final _d_set_format _setFormat;
   late final _d_get_latest_frame _getLatestFrame;
   late final _d_close _close;
 
@@ -121,6 +124,7 @@ class CamSyncNative {
     _writeFrame = _dylib.lookupFunction<_c_write_frame, _d_write_frame>('CamSync_WriteFrame');
     _feedNal = _dylib.lookupFunction<_c_feed_nal, _d_feed_nal>('CamSync_FeedH264Nal');
     _isActive = _dylib.lookupFunction<_c_is_active, _d_is_active>('CamSync_IsVirtualCamActive');
+    _setFormat = _dylib.lookupFunction<_c_set_format, _d_set_format>('CamSync_SetVideoFormat');
     _getLatestFrame = _dylib.lookupFunction<_c_get_latest_frame, _d_get_latest_frame>('CamSync_GetLatestFrame');
     _close = _dylib.lookupFunction<_c_close, _d_close>('CamSync_Close');
   }
@@ -162,6 +166,11 @@ class CamSyncNative {
     final res = _feedNal(ptr, nalBytes.length, frameType, timestampMs);
     calloc.free(ptr);
     return res == 1;
+  }
+
+  bool setVideoFormat(int width, int height) {
+    if (!_initialized) return false;
+    return _setFormat(width, height) == 1;
   }
 
   bool isVirtualCamActive() {

@@ -1,5 +1,11 @@
 package com.camsync.mobile
 
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
+import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -31,6 +37,9 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         captureEngine = CameraCaptureEngine(applicationContext)
+        if (videoServer == null) {
+            videoServer = VideoStreamingServer(8282).apply { start() }
+        }
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, STREAM_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
@@ -106,6 +115,9 @@ class MainActivity : FlutterActivity() {
                         call.argument<Double>("zoom")?.let { captureEngine?.setZoom(it.toFloat()) }
                         result.success(true)
                     }
+                    "getSystemStats" -> {
+                        result.success(getSystemStats())
+                    }
                     else -> {
                         Log.w(TAG, "Unhandled method: ${call.method}")
                         result.notImplemented()
@@ -175,16 +187,68 @@ class MainActivity : FlutterActivity() {
         captureEngine?.stop()
         hardwareEncoder?.stop()
         hardwareEncoder = null
-        videoServer?.stop()
-        videoServer = null
         try {
             textureEntry?.release()
         } catch (_: Exception) {}
         textureEntry = null
     }
 
+    private fun getSystemStats(): Map<String, Any> {
+        var batteryLevel = 100
+        var isCharging = false
+        var temperatureC = 25.0
+        var thermalState = "nominal"
+
+        try {
+            val intent = applicationContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            if (intent != null) {
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                if (level >= 0 && scale > 0) {
+                    batteryLevel = (level * 100) / scale
+                }
+                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                             status == BatteryManager.BATTERY_STATUS_FULL
+                val rawTemp = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
+                if (rawTemp > 0) {
+                    temperatureC = rawTemp / 10.0
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                thermalState = when (powerManager?.currentThermalStatus) {
+                    PowerManager.THERMAL_STATUS_NONE -> "nominal"
+                    PowerManager.THERMAL_STATUS_LIGHT -> "fair"
+                    PowerManager.THERMAL_STATUS_MODERATE -> "fair"
+                    PowerManager.THERMAL_STATUS_SEVERE -> "serious"
+                    PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
+                    PowerManager.THERMAL_STATUS_EMERGENCY -> "critical"
+                    PowerManager.THERMAL_STATUS_SHUTDOWN -> "critical"
+                    else -> "nominal"
+                }
+            }
+        } catch (_: Exception) {}
+
+        val encStats = hardwareEncoder?.getStats() ?: mapOf("fps" to 0.0, "bitrateKbps" to 0)
+
+        return mapOf(
+            "batteryLevel" to batteryLevel,
+            "isCharging" to isCharging,
+            "temperatureC" to temperatureC,
+            "thermalState" to thermalState,
+            "fps" to (encStats["fps"] ?: 0.0),
+            "bitrateKbps" to (encStats["bitrateKbps"] ?: 0)
+        )
+    }
+
     override fun onDestroy() {
         stopStreaming()
+        videoServer?.stop()
+        videoServer = null
         super.onDestroy()
     }
 }

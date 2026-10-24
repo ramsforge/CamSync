@@ -17,7 +17,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final MobileStreamServer _streamServer = MobileStreamServer();
   final CameraChannel _cameraChannel = CameraChannel();
-  final BatteryMonitor _batteryMonitor = BatteryMonitor();
+  late final BatteryMonitor _batteryMonitor = BatteryMonitor(
+    onGetSystemStats: _cameraChannel.getSystemStats,
+  );
 
   bool _isStreaming = false;
   bool _oledPowerSave = false;
@@ -109,6 +111,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void _handleControlMessage(ControlRpcMessage msg) {
     if (msg.method == 'camera.setParameters' && msg.params != null) {
       final params = CameraParameters.fromJson(msg.params!);
+      final lensChanged = params.lens != _selectedLens;
+      final resolutionChanged = params.resolution != _selectedResolution;
+      final fpsChanged = params.fps != _selectedFps;
+
       setState(() {
         _selectedResolution = params.resolution;
         _selectedFps = params.fps;
@@ -117,6 +123,16 @@ class _HomeScreenState extends State<HomeScreen> {
         _currentZoom = params.zoom;
         _oledPowerSave = params.oledPowerSave;
       });
+
+      if (_isStreaming) {
+        if (lensChanged || resolutionChanged || fpsChanged) {
+          _switchLens(params.lens);
+        }
+      } else {
+        if (lensChanged) {
+          _cameraChannel.setLens(params.lens);
+        }
+      }
 
       _cameraChannel.setTorch(_torchEnabled);
       _cameraChannel.setZoom(_currentZoom);
@@ -166,6 +182,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (textureId != null) {
         setState(() => _textureId = textureId);
       }
+      _cameraChannel.setZoom(_currentZoom);
+      _cameraChannel.setTorch(_torchEnabled);
     } else {
       _cameraChannel.setLens(lens);
     }

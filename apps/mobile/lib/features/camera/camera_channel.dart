@@ -104,4 +104,14 @@ class CameraChannel {
   Future<void> applyParameters(CameraParameters params) async {
     await _methodChannel.invokeMethod('applyParameters', params.toJson());
   }
+
+  /// Fetches real-time system and hardware encoder telemetry stats.
+  Future<Map<String, dynamic>> getSystemStats() async {
+    try {
+      final res = await _methodChannel.invokeMapMethod<String, dynamic>('getSystemStats');
+      return res ?? {};
+    } on PlatformException catch (_) {
+      return {};
+    }
+  }
 }

@@ -30,6 +30,14 @@ class HardwareEncoder(
     private var workerThread: Thread? = null
     private var sequenceNumber = 0
     private var startTimeMs = 0L
+    private var startNanoTime = 0L
+
+    // Live telemetry tracking (rolling 1-second window)
+    private var windowStartTimeMs = System.currentTimeMillis()
+    private var windowBytes = 0L
+    private var windowFrames = 0
+    @Volatile private var currentLiveFps = 0.0
+    @Volatile private var currentLiveBitrateKbps = 0
 
     // Preallocated buffer for NV21 -> NV12 color conversion
     private var nv12Buffer: ByteArray? = null
@@ -43,13 +51,26 @@ class HardwareEncoder(
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1) // Keyframe every 1s
 
             try {
-                // VBR is universally supported across Exynos, Snapdragon, MediaTek
-                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+                // Baseline profile = NO B-frames = zero reordering latency
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+                setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
             } catch (_: Exception) {}
 
             try {
+                // CBR delivers frames immediately without multi-frame lookahead
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            } catch (_: Exception) {
+                try {
+                    setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+                } catch (_: Exception) {}
+            }
+
+            try {
                 setInteger(MediaFormat.KEY_LATENCY, 0)
-                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                setInteger(MediaFormat.KEY_PRIORITY, 0) // Real-time priority
+                setInteger("max-bframes", 0)
+                setInteger("latency", 0)
+                setInteger("low-latency", 1)
             } catch (_: Exception) {}
         }
 
@@ -60,6 +81,7 @@ class HardwareEncoder(
         mediaCodec = codec
         isEncoding = true
         startTimeMs = System.currentTimeMillis()
+        startNanoTime = System.nanoTime()
         sequenceNumber = 0
         nv12Buffer = ByteArray(width * height * 3 / 2)
 
@@ -89,7 +111,7 @@ class HardwareEncoder(
                     val putLen = Math.min(inputBuffer.remaining(), totalSize)
                     inputBuffer.put(nv21Data, 0, putLen)
 
-                    val presentationTimeUs = (System.nanoTime() / 1000L) - (startTimeMs * 1000L)
+                    val presentationTimeUs = (System.nanoTime() - startNanoTime) / 1000L
                     codec.queueInputBuffer(inputBufferIndex, 0, putLen, presentationTimeUs, 0)
                 } else {
                     codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)
@@ -107,7 +129,7 @@ class HardwareEncoder(
 
         while (isEncoding) {
             val outputBufferIndex = try {
-                codec.dequeueOutputBuffer(bufferInfo, 10_000L) // 10ms timeout
+                codec.dequeueOutputBuffer(bufferInfo, 2_000L) // 2ms timeout for instant responsiveness
             } catch (e: Exception) {
                 Log.e(TAG, "dequeueOutputBuffer exception: ${e.message}")
                 break
@@ -156,6 +178,7 @@ class HardwareEncoder(
                         Log.d(TAG, "Encoded frame #$sequenceNumber ($payloadSize bytes, type=$frameType)")
                     }
 
+                    recordOutputFrame(totalSize)
                     onPacketEncoded(packet)
                 }
 
@@ -164,6 +187,43 @@ class HardwareEncoder(
                 } catch (_: Exception) {}
             }
         }
+    }
+
+    private fun recordOutputFrame(byteCount: Int) {
+        val now = System.currentTimeMillis()
+        synchronized(this) {
+            windowBytes += byteCount
+            windowFrames++
+            val elapsed = now - windowStartTimeMs
+            if (elapsed >= 1000) {
+                currentLiveFps = (windowFrames * 1000.0) / elapsed
+                currentLiveBitrateKbps = ((windowBytes * 8L) / elapsed).toInt()
+                windowBytes = 0L
+                windowFrames = 0
+                windowStartTimeMs = now
+            }
+        }
+    }
+
+    fun getStats(): Map<String, Any> {
+        val now = System.currentTimeMillis()
+        synchronized(this) {
+            val elapsed = now - windowStartTimeMs
+            if (elapsed >= 1000 && windowFrames > 0) {
+                currentLiveFps = (windowFrames * 1000.0) / elapsed
+                currentLiveBitrateKbps = ((windowBytes * 8L) / elapsed).toInt()
+                windowBytes = 0L
+                windowFrames = 0
+                windowStartTimeMs = now
+            } else if (elapsed > 2000 && windowFrames == 0) {
+                currentLiveFps = 0.0
+                currentLiveBitrateKbps = 0
+            }
+        }
+        return mapOf(
+            "fps" to currentLiveFps,
+            "bitrateKbps" to currentLiveBitrateKbps
+        )
     }
 
     fun stop() {
@@ -180,6 +240,14 @@ class HardwareEncoder(
         } catch (_: Exception) {}
         mediaCodec = null
         nv12Buffer = null
+
+        synchronized(this) {
+            windowBytes = 0L
+            windowFrames = 0
+            currentLiveFps = 0.0
+            currentLiveBitrateKbps = 0
+            windowStartTimeMs = System.currentTimeMillis()
+        }
         Log.i(TAG, "Hardware Encoder stopped.")
     }
 }

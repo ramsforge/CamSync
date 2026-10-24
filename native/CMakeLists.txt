@@ -11,10 +11,13 @@ add_library(camsync_native SHARED
     bridge/CamSyncBridge.h
     shared/CamSyncSharedBuffer.h
 )
-target_link_libraries(camsync_native PRIVATE kernel32 user32 ole32 mfplat mfuuid advapi32)
+target_link_libraries(camsync_native PRIVATE kernel32 user32 ole32 oleaut32 strmiids mfplat mfuuid advapi32)
 
 add_executable(camsync_feeder tools/dummy_feeder.cpp shared/CamSyncSharedBuffer.h)
 target_link_libraries(camsync_feeder PRIVATE kernel32 user32 advapi32)
 
 add_executable(camsync_list_devices tools/list_devices.cpp)
 target_link_libraries(camsync_list_devices PRIVATE ole32 oleaut32 strmiids mfplat mf mfuuid)
+
+add_executable(camsync_test_vcam tools/test_vcam.cpp)
+target_link_libraries(camsync_test_vcam PRIVATE ole32 oleaut32 strmiids)

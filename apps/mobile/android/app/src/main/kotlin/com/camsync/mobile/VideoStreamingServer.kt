@@ -31,7 +31,7 @@ class VideoStreamingServer(private val port: Int = 8282) {
                     try {
                         val client = server.accept()
                         client.tcpNoDelay = true
-                        client.sendBufferSize = 256 * 1024
+                        client.sendBufferSize = 64 * 1024
                         clientSockets.add(client)
                         Log.i(TAG, "PC client connected to native video stream: ${client.remoteSocketAddress} (Total: ${clientSockets.size})")
                     } catch (e: IOException) {

@@ -7,6 +7,7 @@
 #include <mftransform.h>
 #include <mferror.h>
 #include <wmcodecdsp.h>
+#include <codecapi.h>
 #include <iostream>
 #include <vector>
 #include <chrono>
@@ -51,6 +52,23 @@ static bool EnsureDecoder(uint32_t width, uint32_t height) {
         return false;
     }
 
+    // Enable Media Foundation low-latency mode (disables frame reordering buffers)
+    IMFAttributes* pAttributes = nullptr;
+    if (SUCCEEDED(g_pDecoder->GetAttributes(&pAttributes)) && pAttributes) {
+        pAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
+        pAttributes->Release();
+    }
+
+    ICodecAPI* pCodecAPI = nullptr;
+    if (SUCCEEDED(g_pDecoder->QueryInterface(IID_ICodecAPI, (void**)&pCodecAPI)) && pCodecAPI) {
+        VARIANT val;
+        VariantInit(&val);
+        val.vt = VT_UI4;
+        val.ulVal = 1;
+        pCodecAPI->SetValue(&CODECAPI_AVLowLatencyMode, &val);
+        pCodecAPI->Release();
+    }
+
     // Set Input Type (H.264)
     IMFMediaType* pInputType = nullptr;
     hr = MFCreateMediaType(&pInputType);
@@ -71,6 +89,7 @@ static bool EnsureDecoder(uint32_t width, uint32_t height) {
         GUID subtype = GUID_NULL;
         pAvailableType->GetGUID(MF_MT_SUBTYPE, &subtype);
         if (subtype == MFVideoFormat_NV12) {
+            MFSetAttributeSize(pAvailableType, MF_MT_FRAME_SIZE, width, height);
             hr = g_pDecoder->SetOutputType(0, pAvailableType, 0);
             pAvailableType->Release();
             if (SUCCEEDED(hr)) {
@@ -251,6 +270,11 @@ CAMSYNC_API int CamSync_FeedH264Nal(
                 if (sub == MFVideoFormat_NV12) {
                     UINT32 w = 0, h = 0;
                     if (SUCCEEDED(MFGetAttributeSize(pAvail, MF_MT_FRAME_SIZE, &w, &h)) && w > 0 && h > 0) {
+                        MFVideoArea area = {};
+                        if (SUCCEEDED(pAvail->GetBlob(MF_MT_MINIMUM_DISPLAY_APERTURE, (UINT8*)&area, sizeof(area), nullptr)) && area.Area.cx > 0 && area.Area.cy > 0) {
+                            w = area.Area.cx;
+                            h = area.Area.cy;
+                        }
                         g_decoderWidth = w;
                         g_decoderHeight = h;
                         g_rgbBuffer.resize(w * h * 4);
@@ -275,21 +299,45 @@ CAMSYNC_API int CamSync_FeedH264Nal(
         if (pValidSample) {
             IMFMediaBuffer* pMediaBuffer = nullptr;
             if (SUCCEEDED(pValidSample->ConvertToContiguousBuffer(&pMediaBuffer))) {
+                IMF2DBuffer* p2DBuffer = nullptr;
                 BYTE* pNv12 = nullptr;
-                DWORD currLen = 0;
-                if (SUCCEEDED(pMediaBuffer->Lock(&pNv12, nullptr, &currLen))) {
+                LONG pitch = 0;
+                bool is2D = false;
+
+                if (SUCCEEDED(pMediaBuffer->QueryInterface(IID_IMF2DBuffer, (void**)&p2DBuffer))) {
+                    if (SUCCEEDED(p2DBuffer->Lock2D(&pNv12, &pitch))) {
+                        is2D = true;
+                    }
+                }
+
+                if (!is2D) {
+                    DWORD currLen = 0;
+                    if (SUCCEEDED(pMediaBuffer->Lock(&pNv12, nullptr, &currLen))) {
+                        pitch = (g_decoderWidth + 15) & ~15;
+                    } else {
+                        pNv12 = nullptr;
+                    }
+                }
+
+                if (pNv12) {
                     int w = g_decoderWidth;
                     int h = g_decoderHeight;
+                    if (g_rgbBuffer.size() < static_cast<size_t>(w * h * 4)) {
+                        g_rgbBuffer.resize(w * h * 4);
+                    }
                     uint8_t* pRgb = g_rgbBuffer.data();
 
-                    // Convert NV12 to BGRA (RGB32)
+                    // Convert NV12 to BGRA (RGB32) with 2D stride handling
                     for (int y = 0; y < h; ++y) {
-                        int yRow = y * w;
-                        int uvRow = w * h + (y / 2) * w;
+                        int yRow = y * pitch;
+                        int uvRow = pitch * h + (y / 2) * pitch;
+                        int dstRow = y * w * 4;
+
                         for (int x = 0; x < w; ++x) {
                             int Y = pNv12[yRow + x];
                             int uvIndex = uvRow + (x & ~1);
-                            // Mobile hardware camera outputs NV21 (V then U)
+                            // Mobile stream originates from Android Camera NV21:
+                            // Even byte is V (Cr), odd byte is U (Cb)
                             int V = pNv12[uvIndex];
                             int U = pNv12[uvIndex + 1];
 
@@ -301,7 +349,7 @@ CAMSYNC_API int CamSync_FeedH264Nal(
                             int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
                             int b = (298 * c + 516 * d + 128) >> 8;
 
-                            int idx = (yRow + x) * 4;
+                            int idx = dstRow + x * 4;
                             pRgb[idx + 0] = static_cast<uint8_t>(b < 0 ? 0 : (b > 255 ? 255 : b));
                             pRgb[idx + 1] = static_cast<uint8_t>(g < 0 ? 0 : (g > 255 ? 255 : g));
                             pRgb[idx + 2] = static_cast<uint8_t>(r < 0 ? 0 : (r > 255 ? 255 : r));
@@ -309,9 +357,16 @@ CAMSYNC_API int CamSync_FeedH264Nal(
                         }
                     }
 
-                    pMediaBuffer->Unlock();
+                    if (is2D && p2DBuffer) {
+                        p2DBuffer->Unlock2D();
+                    } else {
+                        pMediaBuffer->Unlock();
+                    }
+
                     CamSync_WriteFrame(pRgb, w, h, static_cast<uint32_t>(CamSyncPixelFormat::RGB32), timestampMs * 1000000ULL);
                 }
+
+                if (p2DBuffer) p2DBuffer->Release();
                 pMediaBuffer->Release();
             }
         }
@@ -322,6 +377,11 @@ CAMSYNC_API int CamSync_FeedH264Nal(
     }
 
     return 1;
+}
+
+CAMSYNC_API int CamSync_SetVideoFormat(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) return 0;
+    return EnsureDecoder(width, height) ? 1 : 0;
 }
 
 CAMSYNC_API int CamSync_IsVirtualCamActive() {
@@ -337,17 +397,30 @@ CAMSYNC_API int CamSync_GetLatestFrame(
     uint64_t* pFrameNumber
 ) {
     if (!pOutBuffer || !pWidth || !pHeight || !pFrameNumber) return 0;
-    if (g_rgbBuffer.empty() || g_frameCounter == 0) return 0;
+    if (!g_pSharedMem || !g_hFrameMutex) return 0;
 
-    uint32_t w = g_decoderWidth;
-    uint32_t h = g_decoderHeight;
+    if (WaitForSingleObject(g_hFrameMutex, 30) != WAIT_OBJECT_0) return 0;
+
+    if (g_pSharedMem->header.magic != CAMSYNC_MAGIC || g_pSharedMem->header.frameNumber == 0) {
+        ReleaseMutex(g_hFrameMutex);
+        return 0;
+    }
+
+    uint32_t w = g_pSharedMem->header.width;
+    uint32_t h = g_pSharedMem->header.height;
     uint32_t neededSize = w * h * 4;
-    if (bufferSize < neededSize) return 0;
+    if (bufferSize < neededSize) {
+        ReleaseMutex(g_hFrameMutex);
+        return 0;
+    }
 
-    memcpy(pOutBuffer, g_rgbBuffer.data(), neededSize);
+    const uint8_t* pSrc = (g_pSharedMem->header.activeBufferIndex == 0) ? g_pSharedMem->buffer0 : g_pSharedMem->buffer1;
+    memcpy(pOutBuffer, pSrc, neededSize);
     *pWidth = w;
     *pHeight = h;
-    *pFrameNumber = g_frameCounter;
+    *pFrameNumber = g_pSharedMem->header.frameNumber;
+
+    ReleaseMutex(g_hFrameMutex);
     return 1;
 }
 

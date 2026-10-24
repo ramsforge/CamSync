@@ -43,23 +43,33 @@ class CameraCaptureEngine(private val context: Context) {
     fun selectCameraId(lens: String): Int {
         val count = Camera.getNumberOfCameras()
         val info = Camera.CameraInfo()
-        var backId = -1
-        var frontId = -1
+        val backCameras = mutableListOf<Int>()
+        val frontCameras = mutableListOf<Int>()
 
         for (i in 0 until count) {
             Camera.getCameraInfo(i, info)
-            if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT && frontId == -1) {
-                frontId = i
-            }
-            if (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK && backId == -1) {
-                backId = i
+            if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+                frontCameras.add(i)
+            } else if (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK) {
+                backCameras.add(i)
             }
         }
 
-        return if (lens == "front") {
-            if (frontId != -1) frontId else 0
-        } else {
-            if (backId != -1) backId else 0
+        Log.i(TAG, "Available cameras: back=$backCameras, front=$frontCameras, requested lens=$lens")
+
+        return when {
+            lens == "front" -> {
+                frontCameras.firstOrNull() ?: 0
+            }
+            lens == "back_ultra_wide" -> {
+                if (backCameras.size >= 2) backCameras[1] else (backCameras.firstOrNull() ?: 0)
+            }
+            lens == "back_telephoto" -> {
+                if (backCameras.size >= 3) backCameras[2] else (backCameras.firstOrNull() ?: 0)
+            }
+            else -> {
+                backCameras.firstOrNull() ?: 0
+            }
         }
     }
 
@@ -186,12 +196,30 @@ class CameraCaptureEngine(private val context: Context) {
             try {
                 val params = cam.parameters
                 if (params.isZoomSupported) {
-                    val maxZoom = params.maxZoom
-                    val targetZoom = ((zoom - 1.0f) * (maxZoom / 4.0f)).toInt().coerceIn(0, maxZoom)
-                    params.zoom = targetZoom
+                    val ratios = params.zoomRatios
+                    val targetRatio = (zoom * 100).toInt()
+                    val targetIndex = if (ratios != null && ratios.isNotEmpty()) {
+                        var bestIdx = 0
+                        var minDiff = Int.MAX_VALUE
+                        for (i in ratios.indices) {
+                            val diff = Math.abs(ratios[i] - targetRatio)
+                            if (diff < minDiff) {
+                                minDiff = diff
+                                bestIdx = i
+                            }
+                        }
+                        bestIdx
+                    } else {
+                        val maxZoom = params.maxZoom
+                        ((zoom - 1.0f) * (maxZoom / 4.0f)).toInt().coerceIn(0, maxZoom)
+                    }
+                    params.zoom = targetIndex
                     cam.parameters = params
+                    Log.i(TAG, "Zoom set to $zoom (index $targetIndex / ${params.maxZoom})")
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "setZoom error: ${e.message}")
+            }
         }
     }
 

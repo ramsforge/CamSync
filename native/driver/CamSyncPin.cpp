@@ -15,28 +15,27 @@
 // Supported capabilities table across major video capture standards
 static const std::vector<FormatCapability>& StaticCapabilities() {
     static const std::vector<FormatCapability> caps = {
-        // 1080p FHD
-        { 1920, 1080, 30, MEDIASUBTYPE_RGB24, BI_RGB, 24 },
-        { 1920, 1080, 30, MEDIASUBTYPE_YUY2,  FOURCC_YUY2, 16 },
-        { 1920, 1080, 30, MEDIASUBTYPE_RGB32, BI_RGB, 32 },
-        { 1920, 1080, 30, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
-        { 1920, 1080, 60, MEDIASUBTYPE_RGB24, BI_RGB, 24 },
-        { 1920, 1080, 60, MEDIASUBTYPE_YUY2,  FOURCC_YUY2, 16 },
-        { 1920, 1080, 60, MEDIASUBTYPE_RGB32, BI_RGB, 32 },
-        { 1920, 1080, 60, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
-
-        // 720p HD (Discord & WebRTC preferred)
-        { 1280, 720, 30, MEDIASUBTYPE_RGB24, BI_RGB, 24 },
+        // 720p HD (Discord & WebRTC preferred standard)
+        { 1280, 720, 30, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
         { 1280, 720, 30, MEDIASUBTYPE_YUY2,  FOURCC_YUY2, 16 },
         { 1280, 720, 30, MEDIASUBTYPE_RGB32, BI_RGB, 32 },
-        { 1280, 720, 30, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
+        { 1280, 720, 30, MEDIASUBTYPE_RGB24, BI_RGB, 24 },
+        { 1280, 720, 60, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
         { 1280, 720, 60, MEDIASUBTYPE_YUY2,  FOURCC_YUY2, 16 },
-        { 1280, 720, 60, MEDIASUBTYPE_RGB24, BI_RGB, 24 },
+
+        // 1080p FHD
+        { 1920, 1080, 30, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
+        { 1920, 1080, 30, MEDIASUBTYPE_YUY2,  FOURCC_YUY2, 16 },
+        { 1920, 1080, 30, MEDIASUBTYPE_RGB32, BI_RGB, 32 },
+        { 1920, 1080, 30, MEDIASUBTYPE_RGB24, BI_RGB, 24 },
+        { 1920, 1080, 60, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
+        { 1920, 1080, 60, MEDIASUBTYPE_YUY2,  FOURCC_YUY2, 16 },
 
         // 480p SD Fallback
-        { 640, 480, 30, MEDIASUBTYPE_RGB24, BI_RGB, 24 },
+        { 640, 480, 30, MEDIASUBTYPE_NV12,  FOURCC_NV12, 12 },
         { 640, 480, 30, MEDIASUBTYPE_YUY2,  FOURCC_YUY2, 16 },
-        { 640, 480, 30, MEDIASUBTYPE_RGB32, BI_RGB, 32 }
+        { 640, 480, 30, MEDIASUBTYPE_RGB32, BI_RGB, 32 },
+        { 640, 480, 30, MEDIASUBTYPE_RGB24, BI_RGB, 24 }
     };
     return caps;
 }
@@ -504,7 +503,7 @@ bool CamSyncOutputPin::ConnectSharedMemory() {
     }
 
     m_hFrameEvent = CamSyncOpenEvent(SYNCHRONIZE);
-    m_hFrameMutex = CamSyncOpenMutex(SYNCHRONIZE);
+    m_hFrameMutex = CamSyncOpenMutex(SYNCHRONIZE | MUTEX_MODIFY_STATE);
     return m_pSharedMem != nullptr;
 }
 
@@ -528,21 +527,44 @@ void CamSyncOutputPin::DisconnectSharedMemory() {
 }
 
 void CamSyncOutputPin::RenderPlaceholder(BYTE* pDest, int width, int height, DWORD biCompression, uint64_t frameCount) {
+    auto* pvi = reinterpret_cast<VIDEOINFOHEADER*>(m_mediaType.pbFormat);
+    WORD biBitCount = pvi ? pvi->bmiHeader.biBitCount : 32;
+
     if (biCompression == BI_RGB) {
-        auto* pixels = reinterpret_cast<DWORD*>(pDest);
         float pulse = (std::sin(frameCount * 0.05f) + 1.0f) * 0.5f;
         BYTE indicatorBlue = static_cast<BYTE>(120 + pulse * 135);
 
-        for (int y = 0; y < height; ++y) {
-            BYTE bg = static_cast<BYTE>(20 + (y * 25) / height);
-            DWORD rowColor = (bg << 16) | (bg << 8) | (bg + 4);
-            for (int x = 0; x < width; ++x) {
-                int dx = x - (width / 2);
-                int dy = y - (height / 2);
-                if (dx * dx + dy * dy < 1600) {
-                    pixels[y * width + x] = (indicatorBlue << 8) | indicatorBlue | 0x00FF0000;
-                } else {
-                    pixels[y * width + x] = rowColor;
+        if (biBitCount == 32) {
+            auto* pixels = reinterpret_cast<DWORD*>(pDest);
+            for (int y = 0; y < height; ++y) {
+                BYTE bg = static_cast<BYTE>(20 + (y * 25) / height);
+                DWORD rowColor = (bg << 16) | (bg << 8) | (bg + 4);
+                for (int x = 0; x < width; ++x) {
+                    int dx = x - (width / 2);
+                    int dy = y - (height / 2);
+                    if (dx * dx + dy * dy < 1600) {
+                        pixels[y * width + x] = (indicatorBlue << 8) | indicatorBlue | 0x00FF0000;
+                    } else {
+                        pixels[y * width + x] = rowColor;
+                    }
+                }
+            }
+        } else if (biBitCount == 24) {
+            for (int y = 0; y < height; ++y) {
+                BYTE bg = static_cast<BYTE>(20 + (y * 25) / height);
+                for (int x = 0; x < width; ++x) {
+                    int dx = x - (width / 2);
+                    int dy = y - (height / 2);
+                    int idx = (y * width + x) * 3;
+                    if (dx * dx + dy * dy < 1600) {
+                        pDest[idx + 0] = indicatorBlue;
+                        pDest[idx + 1] = indicatorBlue;
+                        pDest[idx + 2] = 0xFF;
+                    } else {
+                        pDest[idx + 0] = bg + 4;
+                        pDest[idx + 1] = bg;
+                        pDest[idx + 2] = bg;
+                    }
                 }
             }
         }
@@ -660,6 +682,7 @@ void CamSyncOutputPin::ThreadWorker() {
 
     REFERENCE_TIME streamTime = 0;
     uint64_t frameCount = 0;
+    DWORD lastFrameTime = 0;
 
     while (WaitForSingleObject(m_hStopEvent, 0) != WAIT_OBJECT_0) {
         if (!m_pAllocator || !m_pInputPin) break;
@@ -683,10 +706,15 @@ void CamSyncOutputPin::ThreadWorker() {
 
         if (m_pSharedMem && m_hFrameEvent && m_hFrameMutex) {
             DWORD waitRes = WaitForSingleObject(m_hFrameEvent, timeoutMs);
-            if (waitRes == WAIT_OBJECT_0) {
+            DWORD now = GetTickCount();
+            bool allowRecentFrame = (waitRes == WAIT_OBJECT_0) ||
+                (m_pSharedMem->header.isStreaming && m_pSharedMem->header.frameNumber > 0 && (now - lastFrameTime < 1000));
+
+            if (allowRecentFrame) {
                 if (WaitForSingleObject(m_hFrameMutex, 10) == WAIT_OBJECT_0) {
                     if (m_pSharedMem->header.magic == CAMSYNC_MAGIC &&
-                        m_pSharedMem->header.isStreaming) {
+                        m_pSharedMem->header.isStreaming &&
+                        m_pSharedMem->header.frameNumber > 0) {
                         
                         const uint8_t* pSrc = (m_pSharedMem->header.activeBufferIndex == 0)
                             ? m_pSharedMem->buffer0
@@ -701,6 +729,9 @@ void CamSyncOutputPin::ThreadWorker() {
                         if (expectedSize > static_cast<DWORD>(maxLen)) expectedSize = maxLen;
                         pSample->SetActualDataLength(expectedSize);
                         frameCopied = true;
+                        if (waitRes == WAIT_OBJECT_0) {
+                            lastFrameTime = now;
+                        }
                     }
                     ReleaseMutex(m_hFrameMutex);
                 }
@@ -723,7 +754,7 @@ void CamSyncOutputPin::ThreadWorker() {
         streamTime += avgTime;
         frameCount++;
 
-        if (!frameCopied) {
+        if (!m_pSharedMem || !m_hFrameEvent) {
             Sleep(timeoutMs);
         }
     }
