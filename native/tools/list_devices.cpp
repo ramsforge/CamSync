@@ -1,10 +1,15 @@
 #include <windows.h>
 #include <dshow.h>
+#include <mfapi.h>
+#include <mfidl.h>
 #include <iostream>
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "strmiids.lib")
+#pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mf.lib")
+#pragma comment(lib, "mfuuid.lib")
 
 int main() {
     CoInitialize(nullptr);
@@ -62,6 +67,84 @@ int main() {
     }
 
     pDevEnum->Release();
+
+    // Check Windows Media Foundation (used by Windows Camera App, Chrome, Edge, Teams)
+    std::cout << "\n=================================================\n";
+    std::cout << " Windows Media Foundation Video Capture Devices:\n";
+    std::cout << "=================================================\n";
+
+    hr = MFStartup(MF_VERSION);
+    if (SUCCEEDED(hr)) {
+        IMFAttributes* pAttributes = nullptr;
+        hr = MFCreateAttributes(&pAttributes, 1);
+        if (SUCCEEDED(hr)) {
+            pAttributes->SetGUID(
+                MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID
+            );
+
+            IMFActivate** ppDevices = nullptr;
+            UINT32 count = 0;
+            hr = MFEnumDeviceSources(pAttributes, &ppDevices, &count);
+            std::cout << "MFEnumDeviceSources count: " << count << " (HR: 0x" << std::hex << hr << ")\n";
+
+            bool foundMfCamSync = false;
+            for (UINT32 i = 0; i < count; i++) {
+                WCHAR* pName = nullptr;
+                UINT32 nameLen = 0;
+                ppDevices[i]->GetAllocatedString(
+                    MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+                    &pName,
+                    &nameLen
+                );
+                if (pName) {
+                    std::wcout << L" [" << (i + 1) << L"] " << pName << L"\n";
+                    if (wcscmp(pName, L"CamSync Virtual Camera") == 0) {
+                        foundMfCamSync = true;
+                    }
+                    CoTaskMemFree(pName);
+                }
+
+                // Print all attributes
+                UINT32 attrCount = 0;
+                ppDevices[i]->GetCount(&attrCount);
+                for (UINT32 a = 0; a < attrCount; a++) {
+                    GUID guidKey;
+                    PROPVARIANT propVal;
+                    PropVariantInit(&propVal);
+                    if (SUCCEEDED(ppDevices[i]->GetItemByIndex(a, &guidKey, &propVal))) {
+                        LPOLESTR pGuidStr = nullptr;
+                        StringFromCLSID(guidKey, &pGuidStr);
+                        if (propVal.vt == VT_LPWSTR) {
+                            std::wcout << L"    attr " << pGuidStr << L" = " << propVal.pwszVal << L"\n";
+                        } else if (propVal.vt == VT_CLSID) {
+                            LPOLESTR pValStr = nullptr;
+                            StringFromCLSID(*propVal.puuid, &pValStr);
+                            std::wcout << L"    attr " << pGuidStr << L" = (GUID) " << pValStr << L"\n";
+                            CoTaskMemFree(pValStr);
+                        } else {
+                            std::wcout << L"    attr " << pGuidStr << L" = (vt " << propVal.vt << L")\n";
+                        }
+                        if (pGuidStr) CoTaskMemFree(pGuidStr);
+                        PropVariantClear(&propVal);
+                    }
+                }
+
+                ppDevices[i]->Release();
+            }
+            CoTaskMemFree(ppDevices);
+            pAttributes->Release();
+
+            std::cout << "-------------------------------------------------\n";
+            if (foundMfCamSync) {
+                std::cout << " SUCCESS: 'CamSync Virtual Camera' is detected by Media Foundation!\n";
+            } else {
+                std::cout << " WARNING: 'CamSync Virtual Camera' was not in the Media Foundation list.\n";
+            }
+        }
+        MFShutdown();
+    }
+
     CoUninitialize();
     return 0;
 }

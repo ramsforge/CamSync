@@ -17,4 +17,4 @@ add_executable(camsync_feeder tools/dummy_feeder.cpp shared/CamSyncSharedBuffer.
 target_link_libraries(camsync_feeder PRIVATE kernel32 user32 advapi32)
 
 add_executable(camsync_list_devices tools/list_devices.cpp)
-target_link_libraries(camsync_list_devices PRIVATE ole32 oleaut32 strmiids)
+target_link_libraries(camsync_list_devices PRIVATE ole32 oleaut32 strmiids mfplat mf mfuuid)

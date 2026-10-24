@@ -1,0 +1,39 @@
+Windows Registry Editor Version 5.00
+
+; =========================================================================
+; CamSync Virtual Camera - System-Wide Registry Registration
+; =========================================================================
+
+; 1. 64-bit DirectShow COM Class
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{9E40E35B-1B47-497B-8DC4-666E63A759C1}]
+@="CamSync Virtual Camera"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{9E40E35B-1B47-497B-8DC4-666E63A759C1}\InprocServer32]
+@="C:\\Ramzy\\CamSync\\dist\\CamSync-Portable-v1.0.0\\CamSyncVirtualCam64.dll"
+"ThreadingModel"="Both"
+
+; 2. 64-bit DirectShow Video Capture Device Category
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance\{9E40E35B-1B47-497B-8DC4-666E63A759C1}]
+"CLSID"="{9E40E35B-1B47-497B-8DC4-666E63A759C1}"
+"FriendlyName"="CamSync Virtual Camera"
+"FilterData"=hex:02,00,00,00,00,00,20,00,01,00,00,00,00,00,00,00,30,70,69,33,\
+  08,00,00,00,00,00,00,00,01,00,00,00,00,00,00,00,00,00,00,00,30,74,79,33,00,\
+  00,00,00,38,00,00,00,48,00,00,00,76,69,64,73,00,00,10,00,80,00,00,aa,00,38,\
+  9b,71,7e,eb,36,e4,4f,52,ce,11,9f,53,00,20,af,0b,a7,70
+
+; 3. 32-bit (WOW6432Node) DirectShow COM Class
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\WOW6432Node\CLSID\{9E40E35B-1B47-497B-8DC4-666E63A759C1}]
+@="CamSync Virtual Camera"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\WOW6432Node\CLSID\{9E40E35B-1B47-497B-8DC4-666E63A759C1}\InprocServer32]
+@="C:\\Ramzy\\CamSync\\dist\\CamSync-Portable-v1.0.0\\CamSyncVirtualCam32.dll"
+"ThreadingModel"="Both"
+
+; 4. 32-bit (WOW6432Node) DirectShow Video Capture Device Category
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\WOW6432Node\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance\{9E40E35B-1B47-497B-8DC4-666E63A759C1}]
+"CLSID"="{9E40E35B-1B47-497B-8DC4-666E63A759C1}"
+"FriendlyName"="CamSync Virtual Camera"
+"FilterData"=hex:02,00,00,00,00,00,20,00,01,00,00,00,00,00,00,00,30,70,69,33,\
+  08,00,00,00,00,00,00,00,01,00,00,00,00,00,00,00,00,00,00,00,30,74,79,33,00,\
+  00,00,00,38,00,00,00,48,00,00,00,76,69,64,73,00,00,10,00,80,00,00,aa,00,38,\
+  9b,71,7e,eb,36,e4,4f,52,ce,11,9f,53,00,20,af,0b,a7,70

@@ -105,6 +105,21 @@ static LONG SetRegString(HKEY rootKey, LPCWSTR subKey, LPCWSTR valueName, LPCWST
     return res;
 }
 
+static LONG SetRegBinary(HKEY rootKey, LPCWSTR subKey, LPCWSTR valueName, const BYTE* pData, DWORD cbData) {
+    HKEY hSubKey = nullptr;
+    LONG res = RegCreateKeyExW(rootKey, subKey, 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hSubKey, nullptr);
+    if (res == ERROR_ACCESS_DENIED && rootKey == HKEY_CLASSES_ROOT) {
+        WCHAR hkcuSubKey[512];
+        swprintf_s(hkcuSubKey, L"Software\\Classes\\%s", subKey);
+        res = RegCreateKeyExW(HKEY_CURRENT_USER, hkcuSubKey, 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hSubKey, nullptr);
+    }
+    if (res == ERROR_SUCCESS && hSubKey) {
+        res = RegSetValueExW(hSubKey, valueName, 0, REG_BINARY, pData, cbData);
+        RegCloseKey(hSubKey);
+    }
+    return res;
+}
+
 static LONG DeleteRegKeyTree(HKEY rootKey, LPCWSTR subKey) {
     LONG res = RegDeleteTreeW(rootKey, subKey);
     if (rootKey == HKEY_CLASSES_ROOT) {
@@ -140,6 +155,17 @@ STDAPI DllRegisterServer() {
 
     SetRegString(HKEY_CLASSES_ROOT, catInstanceKey, L"CLSID", CAMSYNC_CLSID_STR);
     SetRegString(HKEY_CLASSES_ROOT, catInstanceKey, L"FriendlyName", CAMSYNC_FILTER_NAME);
+
+    // Direct binary registration of FilterData so all DirectShow enumerators immediately recognize it
+    static const BYTE s_filterData[] = {
+        0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+        0x30, 0x70, 0x69, 0x33, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x74, 0x79, 0x33, 0x00, 0x00, 0x00, 0x00, 
+        0x38, 0x00, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00, 0x76, 0x69, 0x64, 0x73, 0x00, 0x00, 0x10, 0x00, 
+        0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71, 0x7E, 0xEB, 0x36, 0xE4, 0x4F, 0x52, 0xCE, 0x11, 
+        0x9F, 0x53, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70
+    };
+    SetRegBinary(HKEY_CLASSES_ROOT, catInstanceKey, L"FilterData", s_filterData, sizeof(s_filterData));
 
     // Also register filter pins info with IFilterMapper2 for full DShow discoverability
     HRESULT hr = CoInitialize(nullptr);
