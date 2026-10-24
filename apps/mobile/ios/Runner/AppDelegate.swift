@@ -11,13 +11,18 @@ import Flutter
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        let controller = window?.rootViewController as! FlutterViewController
+        GeneratedPluginRegistrant.register(with: self)
+
+        let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+
+        guard let controller = window?.rootViewController as? FlutterViewController else {
+            return result
+        }
 
         let cameraChannel = FlutterMethodChannel(name: "com.camsync/camera", binaryMessenger: controller.binaryMessenger)
         let streamChannel = FlutterEventChannel(name: "com.camsync/video_stream", binaryMessenger: controller.binaryMessenger)
 
         streamChannel.setStreamHandler(self)
-
         captureEngine = CameraCaptureEngine()
 
         cameraChannel.setMethodCallHandler { [weak self] (call, result) in
@@ -68,13 +73,26 @@ import Flutter
                 self.captureEngine?.setFocus(mode: mode, distance: dist)
                 result(true)
 
+            case "getSystemStats":
+                UIDevice.current.isBatteryMonitoringEnabled = true
+                let rawBat = UIDevice.current.batteryLevel
+                let batPct = rawBat >= 0 ? Int(rawBat * 100) : 100
+                let isCharging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
+                result([
+                    "batteryLevel": batPct,
+                    "isCharging": isCharging,
+                    "thermalState": "nominal",
+                    "temperatureC": 30.0,
+                    "fps": 30.0,
+                    "bitrateKbps": 4000
+                ])
+
             default:
                 result(FlutterMethodNotImplemented)
             }
         }
 
-        GeneratedPluginRegistrant.register(with: self)
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        return result
     }
 }
 

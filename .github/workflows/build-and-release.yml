@@ -47,13 +47,13 @@ jobs:
       - name: Prepare APK Artifact
         run: |
           mkdir -p dist
-          cp apps/mobile/build/app/outputs/flutter-apk/app-release.apk dist/CamSync-v1.0.0-Android.apk
+          cp apps/mobile/build/app/outputs/flutter-apk/app-release.apk dist/CamSync-Android.apk
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: CamSync-Android-Release
-          path: dist/CamSync-v1.0.0-Android.apk
+          path: dist/CamSync-Android.apk
 
   build-ios:
     name: Build iOS (Unsigned IPA)
@@ -85,14 +85,14 @@ jobs:
           mkdir -p dist/Payload
           cp -r apps/mobile/build/ios/iphoneos/Runner.app dist/Payload/
           cd dist
-          zip -r CamSync-v1.0.0-iOS-unsigned.ipa Payload
+          zip -r CamSync-iOS-unsigned.ipa Payload
           rm -rf Payload
 
       - name: Upload iOS IPA
         uses: actions/upload-artifact@v4
         with:
           name: CamSync-iOS-Release
-          path: dist/CamSync-v1.0.0-iOS-unsigned.ipa
+          path: dist/CamSync-iOS-unsigned.ipa
 
   build-windows:
     name: Build Windows PC Portable
@@ -133,23 +133,23 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist/CamSync-Portable
           Copy-Item -Recurse apps/desktop/build/windows/x64/runner/Release/* dist/CamSync-Portable/
-          Copy-Item build64/native/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam64.dll
-          Copy-Item build64/native/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam.dll
-          Copy-Item build32/native/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam32.dll
-          Copy-Item build64/native/bridge/Release/camsync_native.dll dist/CamSync-Portable/
+          Copy-Item build64/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam64.dll
+          Copy-Item build64/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam.dll
+          Copy-Item build32/driver/Release/CamSyncVirtualCam.dll dist/CamSync-Portable/CamSyncVirtualCam32.dll
+          Copy-Item build64/Release/camsync_native.dll dist/CamSync-Portable/
           New-Item -ItemType Directory -Force -Path dist/CamSync-Portable/tools
-          Copy-Item build64/native/tools/Release/*.exe dist/CamSync-Portable/tools/
+          Copy-Item build64/Release/*.exe dist/CamSync-Portable/tools/ -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path dist/CamSync-Portable/scripts
-          Copy-Item packaging/windows/scripts/* dist/CamSync-Portable/scripts/
+          Copy-Item packaging/windows/scripts/* dist/CamSync-Portable/scripts/ -ErrorAction SilentlyContinue
           Copy-Item packaging/windows/scripts/register_system.reg dist/CamSync-Portable/scripts/ -ErrorAction SilentlyContinue
           Copy-Item dist/CamSync-Portable-v1.0.0/README.txt dist/CamSync-Portable/README.txt -ErrorAction SilentlyContinue
-          Compress-Archive -Path dist/CamSync-Portable/* -DestinationPath dist/CamSync-v1.0.0-Windows-Portable.zip -Force
+          Compress-Archive -Path dist/CamSync-Portable/* -DestinationPath dist/CamSync-Windows-Portable.zip -Force
 
       - name: Upload Windows Portable Zip
         uses: actions/upload-artifact@v4
         with:
           name: CamSync-Windows-Portable
-          path: dist/CamSync-v1.0.0-Windows-Portable.zip
+          path: dist/CamSync-Windows-Portable.zip
 
   create-release:
     name: Publish GitHub Release
