@@ -327,33 +327,53 @@ CAMSYNC_API int CamSync_FeedH264Nal(
                     }
                     uint8_t* pRgb = g_rgbBuffer.data();
 
-                    // Convert NV12 to BGRA (RGB32) with 2D stride handling
+                    // Convert NV12 to BGRA (RGB32) with 16-line macroblock alignment and 2-pixel parallel loop
+                    int alignedHeight = (h + 15) & ~15;
                     for (int y = 0; y < h; ++y) {
                         int yRow = y * pitch;
-                        int uvRow = pitch * h + (y / 2) * pitch;
+                        int uvRow = pitch * alignedHeight + (y / 2) * pitch;
                         int dstRow = y * w * 4;
 
-                        for (int x = 0; x < w; ++x) {
-                            int Y = pNv12[yRow + x];
-                            int uvIndex = uvRow + (x & ~1);
-                            // Mobile stream originates from Android Camera NV21:
-                            // Even byte is V (Cr), odd byte is U (Cb)
-                            int V = pNv12[uvIndex];
-                            int U = pNv12[uvIndex + 1];
+                        for (int x = 0; x < w; x += 2) {
+                            int uvIndex = uvRow + x;
+                            // Standard NV12: Even byte is U (Cb), odd byte is V (Cr)
+                            int U = pNv12[uvIndex];
+                            int V = pNv12[uvIndex + 1];
 
-                            int c = Y - 16;
                             int d = U - 128;
                             int e = V - 128;
 
-                            int r = (298 * c + 409 * e + 128) >> 8;
-                            int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
-                            int b = (298 * c + 516 * d + 128) >> 8;
+                            int r_chroma = 409 * e + 128;
+                            int g_chroma = -100 * d - 208 * e + 128;
+                            int b_chroma = 516 * d + 128;
 
-                            int idx = dstRow + x * 4;
-                            pRgb[idx + 0] = static_cast<uint8_t>(b < 0 ? 0 : (b > 255 ? 255 : b));
-                            pRgb[idx + 1] = static_cast<uint8_t>(g < 0 ? 0 : (g > 255 ? 255 : g));
-                            pRgb[idx + 2] = static_cast<uint8_t>(r < 0 ? 0 : (r > 255 ? 255 : r));
-                            pRgb[idx + 3] = 0xFF;
+                            // Pixel 1 (x)
+                            int c0 = pNv12[yRow + x] - 16;
+                            int y298_0 = 298 * c0;
+                            int r0 = (y298_0 + r_chroma) >> 8;
+                            int g0 = (y298_0 + g_chroma) >> 8;
+                            int b0 = (y298_0 + b_chroma) >> 8;
+
+                            int idx0 = dstRow + x * 4;
+                            pRgb[idx0 + 0] = static_cast<uint8_t>(b0 < 0 ? 0 : (b0 > 255 ? 255 : b0));
+                            pRgb[idx0 + 1] = static_cast<uint8_t>(g0 < 0 ? 0 : (g0 > 255 ? 255 : g0));
+                            pRgb[idx0 + 2] = static_cast<uint8_t>(r0 < 0 ? 0 : (r0 > 255 ? 255 : r0));
+                            pRgb[idx0 + 3] = 0xFF;
+
+                            // Pixel 2 (x + 1)
+                            if (x + 1 < w) {
+                                int c1 = pNv12[yRow + x + 1] - 16;
+                                int y298_1 = 298 * c1;
+                                int r1 = (y298_1 + r_chroma) >> 8;
+                                int g1 = (y298_1 + g_chroma) >> 8;
+                                int b1 = (y298_1 + b_chroma) >> 8;
+
+                                int idx1 = idx0 + 4;
+                                pRgb[idx1 + 0] = static_cast<uint8_t>(b1 < 0 ? 0 : (b1 > 255 ? 255 : b1));
+                                pRgb[idx1 + 1] = static_cast<uint8_t>(g1 < 0 ? 0 : (g1 > 255 ? 255 : g1));
+                                pRgb[idx1 + 2] = static_cast<uint8_t>(r1 < 0 ? 0 : (r1 > 255 ? 255 : r1));
+                                pRgb[idx1 + 3] = 0xFF;
+                            }
                         }
                     }
 
@@ -408,16 +428,32 @@ CAMSYNC_API int CamSync_GetLatestFrame(
 
     uint32_t w = g_pSharedMem->header.width;
     uint32_t h = g_pSharedMem->header.height;
-    uint32_t neededSize = w * h * 4;
-    if (bufferSize < neededSize) {
-        ReleaseMutex(g_hFrameMutex);
-        return 0;
-    }
-
     const uint8_t* pSrc = (g_pSharedMem->header.activeBufferIndex == 0) ? g_pSharedMem->buffer0 : g_pSharedMem->buffer1;
-    memcpy(pOutBuffer, pSrc, neededSize);
-    *pWidth = w;
-    *pHeight = h;
+
+    // For 4K (width > 1920), fast 2x downsample for the PC companion UI preview
+    // so Flutter doesn't choke on 33 MB per frame. The DirectShow driver still uses the pristine 4K shared buffer.
+    if (w > 1920 && bufferSize >= (w / 2) * (h / 2) * 4) {
+        uint32_t targetW = w / 2;
+        uint32_t targetH = h / 2;
+        for (uint32_t y = 0; y < targetH; ++y) {
+            const uint32_t* srcRow = reinterpret_cast<const uint32_t*>(pSrc + (y * 2) * w * 4);
+            uint32_t* dstRow = reinterpret_cast<uint32_t*>(pOutBuffer + y * targetW * 4);
+            for (uint32_t x = 0; x < targetW; ++x) {
+                dstRow[x] = srcRow[x * 2];
+            }
+        }
+        *pWidth = targetW;
+        *pHeight = targetH;
+    } else {
+        uint32_t neededSize = w * h * 4;
+        if (bufferSize < neededSize) {
+            ReleaseMutex(g_hFrameMutex);
+            return 0;
+        }
+        memcpy(pOutBuffer, pSrc, neededSize);
+        *pWidth = w;
+        *pHeight = h;
+    }
     *pFrameNumber = g_pSharedMem->header.frameNumber;
 
     ReleaseMutex(g_hFrameMutex);

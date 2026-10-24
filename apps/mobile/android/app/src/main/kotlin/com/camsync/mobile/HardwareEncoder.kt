@@ -109,7 +109,21 @@ class HardwareEncoder(
 
                 if (nv21Data.size >= totalSize) {
                     val putLen = Math.min(inputBuffer.remaining(), totalSize)
-                    inputBuffer.put(nv21Data, 0, putLen)
+                    if (putLen == totalSize) {
+                        // Copy Y plane directly
+                        inputBuffer.put(nv21Data, 0, ySize)
+                        // Convert NV21 (V, U) to NV12 (U, V)
+                        var i = ySize
+                        while (i < totalSize) {
+                            val v = nv21Data[i]
+                            val u = nv21Data[i + 1]
+                            inputBuffer.put(u)
+                            inputBuffer.put(v)
+                            i += 2
+                        }
+                    } else {
+                        inputBuffer.put(nv21Data, 0, putLen)
+                    }
 
                     val presentationTimeUs = (System.nanoTime() - startNanoTime) / 1000L
                     codec.queueInputBuffer(inputBufferIndex, 0, putLen, presentationTimeUs, 0)

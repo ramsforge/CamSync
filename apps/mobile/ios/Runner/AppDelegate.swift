@@ -97,10 +97,21 @@ class CameraPreviewTexture: NSObject, FlutterTexture {
                     if self.textureId >= 0 {
                         self.flutterController?.textureFrameAvailable(self.textureId)
                     }
+
+                    let actualW = Int32(CVPixelBufferGetWidth(pixelBuffer))
+                    let actualH = Int32(CVPixelBufferGetHeight(pixelBuffer))
+
+                    if self.hardwareEncoder == nil || self.hardwareEncoder?.width != actualW || self.hardwareEncoder?.height != actualH {
+                        self.hardwareEncoder?.stop()
+                        self.hardwareEncoder = HardwareEncoder(width: actualW, height: actualH, fps: Int32(self.currentFps)) { [weak self] packetData in
+                            self?.videoServer?.broadcastPacket(packetData)
+                        }
+                    }
+
                     self.hardwareEncoder?.encode(pixelBuffer: pixelBuffer, presentationTime: pts)
                 }
 
-                self.captureEngine?.startCapture(lens: lens, fps: Int32(fps)) { [weak self] success in
+                self.captureEngine?.startCapture(lens: lens, width: Int32(width), height: Int32(height), fps: Int32(fps)) { [weak self] success in
                     guard let self = self else { return }
                     result([
                         "success": success,
@@ -120,7 +131,7 @@ class CameraPreviewTexture: NSObject, FlutterTexture {
                 self.currentLens = lens
 
                 if self.hardwareEncoder != nil {
-                    self.captureEngine?.startCapture(lens: lens, fps: Int32(self.currentFps)) { [weak self] success in
+                    self.captureEngine?.startCapture(lens: lens, width: Int32(self.currentWidth), height: Int32(self.currentHeight), fps: Int32(self.currentFps)) { [weak self] success in
                         guard let self = self else { return }
                         result([
                             "success": success,
@@ -155,6 +166,9 @@ class CameraPreviewTexture: NSObject, FlutterTexture {
                 result(true)
 
             case "setOrientation":
+                let args = call.arguments as? [String: Any]
+                let orientation = (args?["orientation"] as? String) ?? "landscapeRight"
+                self.captureEngine?.setOrientation(mode: orientation)
                 result(true)
 
             case "applyParameters":

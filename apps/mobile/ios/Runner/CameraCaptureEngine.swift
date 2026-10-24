@@ -9,16 +9,16 @@ class CameraCaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     var onFrameCaptured: ((CVPixelBuffer, CMTime) -> Void)?
 
-    func startCapture(lens: String, fps: Int32 = 30, completion: @escaping (Bool) -> Void) {
+    func startCapture(lens: String, width: Int32 = 1920, height: Int32 = 1080, fps: Int32 = 30, completion: @escaping (Bool) -> Void) {
         let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
         switch authStatus {
         case .authorized:
-            self.configureAndStart(lens: lens, fps: fps, completion: completion)
+            self.configureAndStart(lens: lens, width: width, height: height, fps: fps, completion: completion)
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
                     if granted {
-                        self?.configureAndStart(lens: lens, fps: fps, completion: completion)
+                        self?.configureAndStart(lens: lens, width: width, height: height, fps: fps, completion: completion)
                     } else {
                         completion(false)
                     }
@@ -29,10 +29,16 @@ class CameraCaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
-    private func configureAndStart(lens: String, fps: Int32, completion: @escaping (Bool) -> Void) {
+    private func configureAndStart(lens: String, width: Int32, height: Int32, fps: Int32, completion: @escaping (Bool) -> Void) {
         captureSession.beginConfiguration()
-        if captureSession.canSetSessionPreset(.hd1920x1080) {
+
+        // Choose sessionPreset dynamically based on requested resolution
+        if (width >= 3840 || height >= 2160) && captureSession.canSetSessionPreset(.hd4K3840x2160) {
+            captureSession.sessionPreset = .hd4K3840x2160
+        } else if (width >= 1920 || height >= 1080) && captureSession.canSetSessionPreset(.hd1920x1080) {
             captureSession.sessionPreset = .hd1920x1080
+        } else if (width >= 1280 || height >= 720) && captureSession.canSetSessionPreset(.hd1280x720) {
+            captureSession.sessionPreset = .hd1280x720
         } else {
             captureSession.sessionPreset = .high
         }
@@ -102,7 +108,12 @@ class CameraCaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             if let connection = output.connection(with: .video) {
                 if connection.isVideoOrientationSupported {
-                    connection.videoOrientation = .portrait
+                    // When requested width >= height, use landscapeRight for standard 16:9 widescreen webcam (no stretching!)
+                    if width >= height {
+                        connection.videoOrientation = .landscapeRight
+                    } else {
+                        connection.videoOrientation = .portrait
+                    }
                 }
                 if position == .front && connection.isVideoMirroringSupported {
                     connection.isVideoMirrored = true
@@ -147,6 +158,20 @@ class CameraCaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         } catch {
             captureSession.commitConfiguration()
             DispatchQueue.main.async { completion(false) }
+        }
+    }
+
+    func setOrientation(mode: String) {
+        guard let output = videoOutput, let connection = output.connection(with: .video), connection.isVideoOrientationSupported else { return }
+        switch mode {
+        case "portrait":
+            connection.videoOrientation = .portrait
+        case "landscapeLeft":
+            connection.videoOrientation = .landscapeLeft
+        case "landscapeRight":
+            connection.videoOrientation = .landscapeRight
+        default:
+            connection.videoOrientation = .landscapeRight
         }
     }
 

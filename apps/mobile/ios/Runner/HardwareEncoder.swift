@@ -3,6 +3,8 @@ import VideoToolbox
 import CoreMedia
 
 class HardwareEncoder {
+    let width: Int32
+    let height: Int32
     private var compressionSession: VTCompressionSession?
     private var isEncoding = false
     private var sequenceNumber: UInt32 = 0
@@ -14,6 +16,8 @@ class HardwareEncoder {
     private let headerSize = 20
 
     init(width: Int32, height: Int32, fps: Int32 = 30, onPacketEncoded: @escaping (Data) -> Void) {
+        self.width = width
+        self.height = height
         self.onPacketEncoded = onPacketEncoded
 
         let status = VTCompressionSessionCreate(
@@ -34,12 +38,21 @@ class HardwareEncoder {
         )
 
         if status == noErr, let session = compressionSession {
-            // Low-latency configuration
+            // Dynamic Bitrate: 12 Mbps for 4K, 4 Mbps for 1080p, 2.5 Mbps for 720p
+            let bitrate: Int
+            if width >= 3840 || height >= 2160 {
+                bitrate = 12_000_000
+            } else if width >= 1920 || height >= 1080 {
+                bitrate = 4_000_000
+            } else {
+                bitrate = 2_500_000
+            }
+
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Baseline_AutoLevel)
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: NSNumber(value: fps))
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: fps))
-            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 4_000_000))
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: bitrate))
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
             VTCompressionSessionPrepareToEncodeFrames(session)
             isEncoding = true
