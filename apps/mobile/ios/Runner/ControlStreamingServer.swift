@@ -103,7 +103,7 @@ class ControlStreamingServer {
             if let data = content, let text = String(data: data, encoding: .utf8) {
                 client.buffer += text
                 while let newlineRange = client.buffer.range(of: "\n") {
-                    let line = String(client.buffer[..<newlineRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let line = String(client.buffer[..<newlineRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
                     client.buffer.removeSubrange(..<newlineRange.upperBound)
                     if !line.isEmpty {
                         self.processIncomingLine(line, from: client)
